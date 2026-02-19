@@ -2,36 +2,68 @@ package com.example.demo.controller;
 
 import java.util.List;
 
-import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.demo.entity.Category;
+import com.example.demo.service.CategoryService;
 
 import lombok.RequiredArgsConstructor;
-import com.example.demo.entity.Category;
-import com.example.demo.repository.CategoryRepository;
 
 @RestController
 @RequestMapping("/api/categories")
 @RequiredArgsConstructor
 public class CategoryController {
 
-    private final CategoryRepository categoryRepository;
+    private final CategoryService categoryService;
 
     @GetMapping
     public List<Category> getAllCategories() {
-        return categoryRepository.findAll();
+        return categoryService.getAllCategories();
     }
 
     @GetMapping("/level/{level}")
     public List<Category> getCategoriesByLevel(@PathVariable String level) {
-        return categoryRepository.findByLevel(level);
+        return categoryService.getCategoriesByLevel(level);
     }
 
     @PostMapping("/admin")
-    public Category createCategory(@RequestBody Category category) {
-        return categoryRepository.save(category);
+    public ResponseEntity<?> createCategory(@RequestBody Category category) {
+        try {
+            return ResponseEntity.ok(categoryService.saveCategory(category));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/admin/{id}")
+    public ResponseEntity<?> updateCategory(@PathVariable String id, @RequestBody Category categoryDetails) {
+        try {
+            Category updated = categoryService.updateCategory(id, categoryDetails);
+            return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("Error updating category: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
     }
 
     @DeleteMapping("/admin/{id}")
-    public void deleteCategory(@PathVariable String id) {
-        categoryRepository.deleteById(id);
+    public ResponseEntity<?> deleteCategory(@PathVariable String id) {
+        try {
+            categoryService.deleteCategory(id);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
     }
 }

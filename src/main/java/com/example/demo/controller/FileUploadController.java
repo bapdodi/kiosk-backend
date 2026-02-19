@@ -1,26 +1,24 @@
 package com.example.demo.controller;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import com.example.demo.service.FileService;
+
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/upload")
+@RequiredArgsConstructor
 public class FileUploadController {
 
-    private static final String UPLOAD_DIR = "uploads";
+    private final FileService fileService;
 
     @PostMapping
     public ResponseEntity<?> uploadFile(@RequestParam("file") MultipartFile file) {
@@ -29,21 +27,8 @@ public class FileUploadController {
         }
 
         try {
-            Path uploadPath = Paths.get(UPLOAD_DIR);
-            if (!Files.exists(uploadPath)) {
-                Files.createDirectories(uploadPath);
-            }
-
-            String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
-            String fileName = UUID.randomUUID().toString() + "_" + originalFileName;
-            Path filePath = uploadPath.resolve(fileName);
-
-            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-
-            String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
-                    .path("/uploads/")
-                    .path(fileName)
-                    .toUriString();
+            String fileName = fileService.storeFile(file);
+            String fileDownloadUri = fileService.getFileUrl(fileName);
 
             return ResponseEntity.ok(new UploadResponse(fileName, fileDownloadUri));
         } catch (IOException ex) {
