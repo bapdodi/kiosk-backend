@@ -34,6 +34,9 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(unique = true)
+    private String erpCode;
+
     @Column(nullable = false)
     private String name;
 

@@ -22,3 +22,9 @@ logging:
       springframework:
         security: INFO
         web: INFO
+
+erp:
+  datasource:
+    url: ${ERP_DB_URL:jdbc:sqlserver://localhost:1433;databaseName=DR_ERP;trustServerCertificate=true}
+    username: ${ERP_DB_USERNAME:sa}
+    password: ${ERP_DB_PASSWORD:Password123!}
