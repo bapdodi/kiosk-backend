@@ -12,11 +12,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   backend:
-    build: .
     image: ${DOCKER_USERNAME}/kiosk-backend:latest
     restart: always
     depends_on:
       - db
+      - mssql
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/kiosk
       SPRING_DATASOURCE_USERNAME: admin
