@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final FileService fileService;
 
     public List<Product> getAllProducts() {
         return productRepository.findAll();
@@ -27,7 +28,9 @@ public class ProductService {
 
     @Transactional
     public Product createProduct(Product product) {
-        return productRepository.save(product);
+        Product saved = productRepository.save(product);
+        renameProductImages(saved);
+        return productRepository.save(saved);
     }
 
     @Transactional
@@ -54,8 +57,44 @@ public class ProductService {
                         product.getCombinations().addAll(productDetails.getCombinations());
                     }
 
-                    return productRepository.save(product);
+                    Product saved = productRepository.save(product);
+                    renameProductImages(saved);
+                    return productRepository.save(saved);
                 });
+    }
+
+    private void renameProductImages(Product product) {
+        if (product.getImages() == null || product.getImages().isEmpty())
+            return;
+
+        java.util.List<String> newUrls = new java.util.ArrayList<>();
+        String sanitizedName = product.getName().replaceAll("[\\\\/:*?\"<>|\\s]", "_");
+
+        for (int i = 0; i < product.getImages().size(); i++) {
+            String url = product.getImages().get(i);
+            if (url != null && url.contains("/uploads/")) {
+                String oldFileName = url.substring(url.lastIndexOf("/") + 1);
+
+                String expectedPrefix = sanitizedName + "_" + product.getId() + "-" + (i + 1);
+                if (oldFileName.startsWith(expectedPrefix)) {
+                    newUrls.add(url);
+                    continue;
+                }
+
+                String extension = oldFileName.contains(".") ? oldFileName.substring(oldFileName.lastIndexOf(".")) : "";
+                String newFileName = expectedPrefix + extension;
+
+                try {
+                    fileService.renameFile(oldFileName, newFileName);
+                    newUrls.add(fileService.getFileUrl(newFileName));
+                } catch (java.io.IOException e) {
+                    newUrls.add(url);
+                }
+            } else {
+                newUrls.add(url);
+            }
+        }
+        product.setImages(newUrls);
     }
 
     @Transactional

@@ -38,4 +38,16 @@ public class FileService {
                 .path(fileName)
                 .toUriString();
     }
+
+    public String renameFile(String oldFileName, String newFileName) throws IOException {
+        Path uploadPath = Paths.get(UPLOAD_DIR);
+        Path oldPath = uploadPath.resolve(oldFileName);
+        Path newPath = uploadPath.resolve(newFileName);
+
+        if (Files.exists(oldPath)) {
+            Files.move(oldPath, newPath, StandardCopyOption.REPLACE_EXISTING);
+            return newFileName;
+        }
+        return oldFileName;
+    }
 }

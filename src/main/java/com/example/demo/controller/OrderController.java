@@ -35,14 +35,14 @@ public class OrderController {
     }
 
     @PutMapping("/admin/{id}/status")
-    public ResponseEntity<Order> updateOrderStatus(@PathVariable Long id, @RequestBody String status) {
+    public ResponseEntity<Order> updateOrderStatus(@PathVariable("id") Long id, @RequestBody String status) {
         return orderService.updateOrderStatus(id, status)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/admin/{id}")
-    public ResponseEntity<Void> deleteOrder(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteOrder(@PathVariable("id") Long id) {
         if (orderService.deleteOrder(id)) {
             return ResponseEntity.ok().build();
         } else {

@@ -7,10 +7,10 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
 server:
@@ -20,5 +20,5 @@ logging:
   level:
     org:
       springframework:
-        security: DEBUG
-        web: TRACE
+        security: INFO
+        web: INFO

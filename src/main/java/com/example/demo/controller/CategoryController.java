@@ -30,7 +30,7 @@ public class CategoryController {
     }
 
     @GetMapping("/level/{level}")
-    public List<Category> getCategoriesByLevel(@PathVariable String level) {
+    public List<Category> getCategoriesByLevel(@PathVariable("level") String level) {
         return categoryService.getCategoriesByLevel(level);
     }
 
@@ -45,7 +45,7 @@ public class CategoryController {
     }
 
     @PutMapping("/admin/{id}")
-    public ResponseEntity<?> updateCategory(@PathVariable String id, @RequestBody Category categoryDetails) {
+    public ResponseEntity<?> updateCategory(@PathVariable("id") String id, @RequestBody Category categoryDetails) {
         try {
             Category updated = categoryService.updateCategory(id, categoryDetails);
             return ResponseEntity.ok(updated);
@@ -57,7 +57,7 @@ public class CategoryController {
     }
 
     @DeleteMapping("/admin/{id}")
-    public ResponseEntity<?> deleteCategory(@PathVariable String id) {
+    public ResponseEntity<?> deleteCategory(@PathVariable("id") String id) {
         try {
             categoryService.deleteCategory(id);
             return ResponseEntity.ok().build();
