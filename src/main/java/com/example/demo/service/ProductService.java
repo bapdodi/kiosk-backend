@@ -1,5 +1,7 @@
 package com.example.demo.service;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
@@ -68,26 +70,27 @@ public class ProductService {
             return;
 
         java.util.List<String> newUrls = new java.util.ArrayList<>();
-        String sanitizedName = product.getName().replaceAll("[\\\\/:*?\"<>|\\s]", "_");
 
         for (int i = 0; i < product.getImages().size(); i++) {
             String url = product.getImages().get(i);
             if (url != null && url.contains("/uploads/")) {
-                String oldFileName = url.substring(url.lastIndexOf("/") + 1);
-
-                String expectedPrefix = sanitizedName + "_" + product.getId() + "-" + (i + 1);
-                if (oldFileName.startsWith(expectedPrefix)) {
-                    newUrls.add(url);
-                    continue;
-                }
-
-                String extension = oldFileName.contains(".") ? oldFileName.substring(oldFileName.lastIndexOf(".")) : "";
-                String newFileName = expectedPrefix + extension;
-
                 try {
-                    fileService.renameFile(oldFileName, newFileName);
-                    newUrls.add(fileService.getFileUrl(newFileName));
-                } catch (java.io.IOException e) {
+                    String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
+                    // Decode the filename from URL
+                    String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
+
+                    String extension = oldFileName.contains(".") ? oldFileName.substring(oldFileName.lastIndexOf("."))
+                            : "";
+                    String expectedName = product.getId() + "-" + (i + 1) + extension;
+
+                    if (oldFileName.equals(expectedName)) {
+                        newUrls.add(url);
+                        continue;
+                    }
+
+                    fileService.renameFile(oldFileName, expectedName);
+                    newUrls.add(fileService.getFileUrl(expectedName));
+                } catch (Exception e) {
                     newUrls.add(url);
                 }
             } else {
