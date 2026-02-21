@@ -10,7 +10,6 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Service
 public class FileService {
@@ -33,10 +32,7 @@ public class FileService {
     }
 
     public String getFileUrl(String fileName) {
-        return ServletUriComponentsBuilder.fromCurrentContextPath()
-                .path("/uploads/")
-                .path(fileName)
-                .toUriString();
+        return "/uploads/" + fileName;
     }
 
     public String renameFile(String oldFileName, String newFileName) throws IOException {
