@@ -41,6 +41,14 @@ public class ProductService {
                 .map(product -> {
                     product.setName(productDetails.getName());
                     product.setDescription(productDetails.getDescription());
+                    boolean categoryChanged = !productDetails.getMainCategory().equals(product.getMainCategory())
+                            || !productDetails.getSubCategory().equals(product.getSubCategory())
+                            || !productDetails.getDetailCategory().equals(product.getDetailCategory());
+
+                    if (categoryChanged) {
+                        product.setIsCategoryModified(true);
+                    }
+
                     product.setMainCategory(productDetails.getMainCategory());
                     product.setSubCategory(productDetails.getSubCategory());
                     product.setDetailCategory(productDetails.getDetailCategory());

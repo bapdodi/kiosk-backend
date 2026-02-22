@@ -50,6 +50,10 @@ public class Product {
     @Column(nullable = false)
     private Integer price;
 
+    @Column(nullable = false, columnDefinition = "INT DEFAULT 0")
+    @Builder.Default
+    private Integer stock = 0;
+
     @ElementCollection
     @CollectionTable(name = "product_hashtags", joinColumns = @JoinColumn(name = "product_id"))
     private List<String> hashtags;
@@ -59,6 +63,10 @@ public class Product {
     @Column(name = "image_url")
     @Builder.Default
     private List<String> images = new ArrayList<>();
+
+    @Column(columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean isCategoryModified = false;
 
     private Boolean isComplexOptions;
 

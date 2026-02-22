@@ -54,7 +54,7 @@ public class ErpSyncService {
         }
 
         // 2. Get Items from ITEM table
-        String itemQuery = "SELECT CODE, ITEM, OUTPR, PARTCODE, MIDCODE, SMALLCODE FROM [ITEM]";
+        String itemQuery = "SELECT CODE, ITEM, OUTPR, PARTCODE, MIDCODE, SMALLCODE FROM [ITEM] WHERE CODE >= 100";
         List<Map<String, Object>> erpItems = jdbcTemplate.queryForList(itemQuery);
 
         for (Map<String, Object> itemRow : erpItems) {
@@ -83,9 +83,14 @@ public class ErpSyncService {
                             // Update existing
                             product.setName(name != null ? name.trim() : product.getName());
                             product.setPrice(price);
-                            product.setMainCategory(mainCatId);
-                            product.setSubCategory(subCatId);
-                            product.setDetailCategory(detailCatId);
+
+                            // Only overwrite categories if they weren't manually changed by admin
+                            if (product.getIsCategoryModified() == null || !product.getIsCategoryModified()) {
+                                product.setMainCategory(mainCatId);
+                                product.setSubCategory(subCatId);
+                                product.setDetailCategory(detailCatId);
+                            }
+
                             productRepository.save(product);
                             log.info("Updated product: {} from ERP", name);
                         }
@@ -111,6 +116,24 @@ public class ErpSyncService {
         List<Category> cats = categoryRepository.findAll();
         for (Category c : cats) {
             log.info("Final DB Category: id={}, name={}, parent={}", c.getId(), c.getName(), c.getParentId());
+        }
+    }
+
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000)
+    @Transactional
+    public void syncStockRealtime() {
+        try {
+            String stockQuery = "SELECT CODE, JEGO FROM ITEM WHERE CODE >= 100";
+            List<Map<String, Object>> erpStocks = jdbcTemplate.queryForList(stockQuery);
+
+            for (Map<String, Object> row : erpStocks) {
+                String code = String.valueOf(row.get("CODE"));
+                Integer stock = toInteger(row.get("JEGO"));
+
+                productRepository.updateStockByErpCode(code, stock);
+            }
+        } catch (Exception e) {
+            log.error("Failed to sync realtime stock from ERP: {}", e.getMessage());
         }
     }
 
@@ -160,8 +183,10 @@ public class ErpSyncService {
     public void sendOrderToErp(Order order) {
         log.info("Sending order #{} to ERP...", order.getId());
 
-        String dateStr = order.getTimestamp()
-                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String sujuDateStr = order.getTimestamp()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yy.MM.dd"));
+        String yy = order.getTimestamp().format(java.time.format.DateTimeFormatter.ofPattern("yy"));
+        String ilTable = "IL" + yy;
 
         for (com.example.demo.entity.OrderItem item : order.getItems()) {
             try {
@@ -171,13 +196,55 @@ public class ErpSyncService {
                     continue;
                 }
 
-                String insertSuju = "INSERT INTO SUJU (dDATE, ITEMCODE, PRICE, EA, BALJUNO) VALUES (?, ?, ?, ?, ?)";
+                String custCode = order.getErpCustomerCode() != null && !order.getErpCustomerCode().isEmpty()
+                        ? order.getErpCustomerCode()
+                        : "1";
+
+                // 1) Insert into SUJU
+                String insertSuju = "INSERT INTO SUJU (dDATE, ITEMCODE, PRICE, EA, BALJUNO, CUST) VALUES (?, ?, ?, ?, ?, ?)";
                 jdbcTemplate.update(insertSuju,
-                        dateStr,
+                        sujuDateStr,
                         item.getErpCode(),
                         item.getFinalPrice(),
                         item.getQuantity() != null ? item.getQuantity() : 1,
-                        "KIOSK-" + order.getId());
+                        "KIOSK-" + order.getId(),
+                        custCode);
+
+                // 2) Insert into ILxx (Transaction History so it shows in '최근 거래')
+                // GUM = PRICE * EA
+                int ea = item.getQuantity() != null ? item.getQuantity() : 1;
+                long gum = (long) item.getFinalPrice() * ea;
+
+                String insertIl = "INSERT INTO " + ilTable
+                        + " (dNO, EDITNO, dDATE, ITEMCODE, CUST, KIND, PRICE, EA, GUM, VAT, SA, DAECHE, EA2, BIGO, BIGO2, BIGO3, ORDERCODE, POINT, JIJOM) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+                // Fetch max dNO to auto-increment it manually since it might not be identity
+                Integer maxDno = jdbcTemplate.queryForObject(
+                        "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WHERE dDATE = ?", Integer.class, sujuDateStr);
+                int nextDno = (maxDno != null ? maxDno : 0) + 1;
+
+                jdbcTemplate.update(insertIl,
+                        nextDno, // dNO
+                        nextDno, // EDITNO
+                        sujuDateStr, // dDATE (yy.MM.dd)
+                        item.getErpCode(),
+                        custCode, // CUST
+                        "3", // KIND = 3 (외상매출/외출)
+                        item.getFinalPrice(), // PRICE
+                        ea, // EA
+                        gum, // GUM
+                        0, // VAT
+                        0, // SA
+                        0, // DAECHE
+                        0, // EA2
+                        "", // BIGO (Cannot be null)
+                        "KIOSK-" + order.getId(), // BIGO2 for tracing
+                        "", // BIGO3
+                        "", // ORDERCODE
+                        0, // POINT
+                        0 // JIJOM
+                );
+
                 log.info("Synced item {} ({}) to ERP SUJU", item.getName(), item.getErpCode());
             } catch (Exception e) {
                 log.error("Failed to sync item {} to ERP: {}", item.getName(), e.getMessage());
