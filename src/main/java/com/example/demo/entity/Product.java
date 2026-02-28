@@ -34,7 +34,7 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true)
+    @Column
     private String erpCode;
 
     @Column(nullable = false)
@@ -77,39 +77,4 @@ public class Product {
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "product_id")
     private List<Combination> combinations;
-}
-
-@Entity
-@Table(name = "option_groups")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-class OptionGroup {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    private String name;
-
-    @ElementCollection
-    private List<String> values;
-}
-
-@Entity
-@Table(name = "combinations")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-class Combination {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id_db; // database id
-
-    private String id; // frontend id
-    private String name;
-    private Integer price;
 }

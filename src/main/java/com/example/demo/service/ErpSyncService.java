@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.demo.entity.Category;
+import com.example.demo.entity.Combination;
 import com.example.demo.entity.Order;
 import com.example.demo.entity.Product;
 import com.example.demo.repository.CategoryRepository;
@@ -20,14 +21,17 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ErpSyncService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final JdbcTemplate erpJdbcTemplate;
+    private final JdbcTemplate primaryJdbcTemplate;
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
 
-    public ErpSyncService(@Qualifier("erpJdbcTemplate") JdbcTemplate jdbcTemplate,
+    public ErpSyncService(@Qualifier("erpJdbcTemplate") JdbcTemplate erpJdbcTemplate,
+            @Qualifier("jdbcTemplate") JdbcTemplate primaryJdbcTemplate,
             ProductRepository productRepository,
             CategoryRepository categoryRepository) {
-        this.jdbcTemplate = jdbcTemplate;
+        this.erpJdbcTemplate = erpJdbcTemplate;
+        this.primaryJdbcTemplate = primaryJdbcTemplate;
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
     }
@@ -38,7 +42,7 @@ public class ErpSyncService {
 
         // 1. Get Categories from PARTCODE table
         String categoryQuery = "SELECT PARTCODE, MIDCODE, SMALLCODE, PART FROM PARTCODE";
-        List<Map<String, Object>> erpCategories = jdbcTemplate.queryForList(categoryQuery);
+        List<Map<String, Object>> erpCategories = erpJdbcTemplate.queryForList(categoryQuery);
 
         for (Map<String, Object> row : erpCategories) {
             int part = toInteger(row.get("PARTCODE"));
@@ -54,63 +58,113 @@ public class ErpSyncService {
         }
 
         // 2. Get Items from ITEM table
-        String itemQuery = "SELECT CODE, ITEM, OUTPR, PARTCODE, MIDCODE, SMALLCODE FROM [ITEM] WHERE CODE >= 100";
-        List<Map<String, Object>> erpItems = jdbcTemplate.queryForList(itemQuery);
+        String itemQuery = "SELECT CODE, ITEM, OUTPR, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
+        List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(itemQuery);
 
+        // Grouping items by name manually to process them properly
+        java.util.Map<String, List<Map<String, Object>>> groupedItems = new java.util.HashMap<>();
         for (Map<String, Object> itemRow : erpItems) {
-            String code = String.valueOf(itemRow.get("CODE"));
             String name = (String) itemRow.get("ITEM");
+            if (name == null)
+                continue;
+            name = name.trim();
+            groupedItems.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(itemRow);
+        }
 
-            Integer price = toInteger(itemRow.get("OUTPR"));
-            Integer part = toInteger(itemRow.get("PARTCODE"));
-            Integer mid = toInteger(itemRow.get("MIDCODE"));
-            Integer small = toInteger(itemRow.get("SMALLCODE"));
+        for (java.util.Map.Entry<String, List<Map<String, Object>>> entry : groupedItems.entrySet()) {
+            String name = entry.getKey();
+            List<Map<String, Object>> rows = entry.getValue();
+
+            // Sub-group by price to identify actual selectable options
+            java.util.Map<Integer, List<Map<String, Object>>> priceGroups = new java.util.LinkedHashMap<>();
+            for (Map<String, Object> row : rows) {
+                Integer price = toInteger(row.get("OUTPR"));
+                priceGroups.computeIfAbsent(price, k -> new java.util.ArrayList<>()).add(row);
+            }
+
+            // Get categories from the first row of the entire group
+            Map<String, Object> firstRow = rows.get(0);
+            Integer basePrice = toInteger(firstRow.get("OUTPR"));
+            Integer part = toInteger(firstRow.get("PARTCODE"));
+            Integer mid = toInteger(firstRow.get("MIDCODE"));
+            Integer small = toInteger(firstRow.get("SMALLCODE"));
 
             String mainCatId = String.format("erp-%d-0-0", part);
             String subCatId = String.format("erp-%d-%d-0", part, mid);
             String detailCatId = String.format("erp-%d-%d-%d", part, mid, small);
 
-            // Ensure categories exist even if not in PARTCODE
             ensureCategoryExists(part, 0, 0, "ERP " + part);
             if (mid != 0)
                 ensureCategoryExists(part, mid, 0, "ERP " + mid);
             if (small != 0)
-                ensureCategoryExists(part, mid, small, "ERP Item " + code);
+                ensureCategoryExists(part, mid, small, name);
 
-            productRepository.findByErpCode(code).ifPresentOrElse(
-                    product -> {
-                        if (product != null) {
-                            // Update existing
-                            product.setName(name != null ? name.trim() : product.getName());
-                            product.setPrice(price);
+            Product product = productRepository.findByName(name).stream().findFirst().orElse(null);
 
-                            // Only overwrite categories if they weren't manually changed by admin
-                            if (product.getIsCategoryModified() == null || !product.getIsCategoryModified()) {
-                                product.setMainCategory(mainCatId);
-                                product.setSubCategory(subCatId);
-                                product.setDetailCategory(detailCatId);
-                            }
+            if (product == null) {
+                product = Product.builder()
+                        .name(name)
+                        .price(basePrice)
+                        .mainCategory(mainCatId)
+                        .subCategory(subCatId)
+                        .detailCategory(detailCatId)
+                        .hashtags(new java.util.ArrayList<>())
+                        .images(new java.util.ArrayList<>())
+                        .optionGroups(new java.util.ArrayList<>())
+                        .combinations(new java.util.ArrayList<>())
+                        .isCategoryModified(false)
+                        .isComplexOptions(priceGroups.size() > 1) // Only complex if prices differ
+                        .build();
+            } else {
+                product.setPrice(basePrice);
+                if (product.getIsCategoryModified() == null || !product.getIsCategoryModified()) {
+                    product.setMainCategory(mainCatId);
+                    product.setSubCategory(subCatId);
+                    product.setDetailCategory(detailCatId);
+                }
+            }
 
-                            productRepository.save(product);
-                            log.info("Updated product: {} from ERP", name);
-                        }
-                    },
-                    () -> {
-                        // Create new
-                        Product newProduct = Product.builder()
-                                .erpCode(code)
-                                .name(name != null ? name.trim() : "ERP Item " + code)
-                                .price(price)
-                                .mainCategory(mainCatId)
-                                .subCategory(subCatId)
-                                .detailCategory(detailCatId)
-                                .isComplexOptions(false)
-                                .build();
-                        if (newProduct != null) {
-                            productRepository.save(newProduct);
-                            log.info("Created new product: {} from ERP", name);
-                        }
-                    });
+            // Consolidate combinations
+            java.util.List<Combination> combinations = new java.util.ArrayList<>();
+            for (java.util.Map.Entry<Integer, List<Map<String, Object>>> priceEntry : priceGroups.entrySet()) {
+                Integer price = priceEntry.getKey();
+                List<Map<String, Object>> samePriceRows = priceEntry.getValue();
+
+                // Merge stock for items with same name and same price
+                int totalStockForPrice = samePriceRows.stream().mapToInt(r -> toInteger(r.get("JEGO"))).sum();
+                String firstErpCode = String.valueOf(samePriceRows.get(0).get("CODE"));
+
+                String comboName = name;
+                if (priceGroups.size() > 1) {
+                    comboName = String.format("%s (%,d원)", name, price);
+                }
+
+                combinations.add(Combination.builder()
+                        .id(firstErpCode) // Use first erpCode as internal ID
+                        .name(comboName)
+                        .price(price)
+                        .erpCode(firstErpCode)
+                        .stock(totalStockForPrice)
+                        .build());
+            }
+
+            // If only one price group, merge into simple product
+            if (priceGroups.size() == 1) {
+                Combination single = combinations.get(0);
+                product.setErpCode(single.getErpCode());
+                product.setStock(single.getStock());
+                product.setIsComplexOptions(false);
+                product.setCombinations(new java.util.ArrayList<>());
+            } else {
+                product.setErpCode(null);
+                product.setStock(combinations.stream().mapToInt(Combination::getStock).sum());
+                product.setIsComplexOptions(true);
+                product.getCombinations().clear();
+                product.getCombinations().addAll(combinations);
+            }
+
+            productRepository.save(product);
+            log.info("Synced product: {} (Price options: {})", name, priceGroups.size());
         }
         log.info("ERP product synchronization completed. Total items processed.");
         List<Category> cats = categoryRepository.findAll();
@@ -124,13 +178,16 @@ public class ErpSyncService {
     public void syncStockRealtime() {
         try {
             String stockQuery = "SELECT CODE, JEGO FROM ITEM WHERE CODE >= 100";
-            List<Map<String, Object>> erpStocks = jdbcTemplate.queryForList(stockQuery);
+            List<Map<String, Object>> erpStocks = erpJdbcTemplate.queryForList(stockQuery);
 
             for (Map<String, Object> row : erpStocks) {
                 String code = String.valueOf(row.get("CODE"));
                 Integer stock = toInteger(row.get("JEGO"));
 
                 productRepository.updateStockByErpCode(code, stock);
+
+                // Also update combination stock for grouped items
+                primaryJdbcTemplate.update("UPDATE combinations SET stock = ? WHERE erp_code = ?", stock, code);
             }
         } catch (Exception e) {
             log.error("Failed to sync realtime stock from ERP: {}", e.getMessage());
@@ -202,7 +259,7 @@ public class ErpSyncService {
 
                 // 1) Insert into SUJU
                 String insertSuju = "INSERT INTO SUJU (dDATE, ITEMCODE, PRICE, EA, BALJUNO, CUST) VALUES (?, ?, ?, ?, ?, ?)";
-                jdbcTemplate.update(insertSuju,
+                erpJdbcTemplate.update(insertSuju,
                         sujuDateStr,
                         item.getErpCode(),
                         item.getFinalPrice(),
@@ -219,11 +276,11 @@ public class ErpSyncService {
                         + " (dNO, EDITNO, dDATE, ITEMCODE, CUST, KIND, PRICE, EA, GUM, VAT, SA, DAECHE, EA2, BIGO, BIGO2, BIGO3, ORDERCODE, POINT, JIJOM) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
                 // Fetch max dNO to auto-increment it manually since it might not be identity
-                Integer maxDno = jdbcTemplate.queryForObject(
+                Integer maxDno = erpJdbcTemplate.queryForObject(
                         "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WHERE dDATE = ?", Integer.class, sujuDateStr);
                 int nextDno = (maxDno != null ? maxDno : 0) + 1;
 
-                jdbcTemplate.update(insertIl,
+                erpJdbcTemplate.update(insertIl,
                         nextDno, // dNO
                         nextDno, // EDITNO
                         sujuDateStr, // dDATE (yy.MM.dd)
