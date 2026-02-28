@@ -58,7 +58,8 @@ public class ErpSyncService {
         }
 
         // 2. Get Items from ITEM table
-        String itemQuery = "SELECT CODE, ITEM, OUTPR, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
+        // Fetch SPEC (Specification/규격) if available
+        String itemQuery = "SELECT CODE, ITEM, SPEC, OUTPR, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
         List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(itemQuery);
 
         // Grouping items by name manually to process them properly
@@ -75,12 +76,9 @@ public class ErpSyncService {
             String name = entry.getKey();
             List<Map<String, Object>> rows = entry.getValue();
 
-            // Sub-group by price to identify actual selectable options
-            java.util.Map<Integer, List<Map<String, Object>>> priceGroups = new java.util.LinkedHashMap<>();
-            for (Map<String, Object> row : rows) {
-                Integer price = toInteger(row.get("OUTPR"));
-                priceGroups.computeIfAbsent(price, k -> new java.util.ArrayList<>()).add(row);
-            }
+            // Sub-group by SPEC/Price to identify actual selectable options
+            // Even if prices are same, if SPEC differs, it should be an option.
+            // But user said "just show SPEC".
 
             // Get categories from the first row of the entire group
             Map<String, Object> firstRow = rows.get(0);
@@ -113,7 +111,7 @@ public class ErpSyncService {
                         .optionGroups(new java.util.ArrayList<>())
                         .combinations(new java.util.ArrayList<>())
                         .isCategoryModified(false)
-                        .isComplexOptions(priceGroups.size() > 1) // Only complex if prices differ
+                        .isComplexOptions(rows.size() > 1) // Multiple rows mean choices
                         .build();
             } else {
                 product.setPrice(basePrice);
@@ -124,32 +122,27 @@ public class ErpSyncService {
                 }
             }
 
-            // Consolidate combinations
+            // Consolidate combinations by SPEC
             java.util.List<Combination> combinations = new java.util.ArrayList<>();
-            for (java.util.Map.Entry<Integer, List<Map<String, Object>>> priceEntry : priceGroups.entrySet()) {
-                Integer price = priceEntry.getKey();
-                List<Map<String, Object>> samePriceRows = priceEntry.getValue();
+            for (Map<String, Object> row : rows) {
+                String erpCode = String.valueOf(row.get("CODE"));
+                String spec = (String) row.get("SPEC");
+                Integer price = toInteger(row.get("OUTPR"));
+                Integer stock = toInteger(row.get("JEGO"));
 
-                // Merge stock for items with same name and same price
-                int totalStockForPrice = samePriceRows.stream().mapToInt(r -> toInteger(r.get("JEGO"))).sum();
-                String firstErpCode = String.valueOf(samePriceRows.get(0).get("CODE"));
-
-                String comboName = name;
-                if (priceGroups.size() > 1) {
-                    comboName = String.format("%s (%,d원)", name, price);
-                }
+                String comboName = (spec != null && !spec.trim().isEmpty()) ? spec.trim() : ("옵션 " + erpCode);
 
                 combinations.add(Combination.builder()
-                        .id(firstErpCode) // Use first erpCode as internal ID
+                        .id(erpCode)
                         .name(comboName)
                         .price(price)
-                        .erpCode(firstErpCode)
-                        .stock(totalStockForPrice)
+                        .erpCode(erpCode)
+                        .stock(stock)
                         .build());
             }
 
-            // If only one price group, merge into simple product
-            if (priceGroups.size() == 1) {
+            // If only one entry, merge into simple product
+            if (rows.size() == 1) {
                 Combination single = combinations.get(0);
                 product.setErpCode(single.getErpCode());
                 product.setStock(single.getStock());
@@ -158,13 +151,15 @@ public class ErpSyncService {
             } else {
                 product.setErpCode(null);
                 product.setStock(combinations.stream().mapToInt(Combination::getStock).sum());
-                product.setIsComplexOptions(true);
+                product.setIsComplexOptions(true); // Multiple rows = multiple combinations
+                if (product.getCombinations() == null)
+                    product.setCombinations(new java.util.ArrayList<>());
                 product.getCombinations().clear();
                 product.getCombinations().addAll(combinations);
             }
 
             productRepository.save(product);
-            log.info("Synced product: {} (Price options: {})", name, priceGroups.size());
+            log.info("Synced product: {} (Price options: {})", name, rows.size());
         }
         log.info("ERP product synchronization completed. Total items processed.");
         List<Category> cats = categoryRepository.findAll();
