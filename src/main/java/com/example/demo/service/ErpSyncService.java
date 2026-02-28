@@ -58,8 +58,8 @@ public class ErpSyncService {
         }
 
         // 2. Get Items from ITEM table
-        // Fetch SPEC (Specification/규격) if available
-        String itemQuery = "SELECT CODE, ITEM, SPEC, OUTPR, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
+        // Fetch GYU (Specification/규격) if available
+        String itemQuery = "SELECT CODE, ITEM, GYU, OUTPR, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
         List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(itemQuery);
 
         // Grouping items by name manually to process them properly
@@ -126,11 +126,11 @@ public class ErpSyncService {
             java.util.List<Combination> combinations = new java.util.ArrayList<>();
             for (Map<String, Object> row : rows) {
                 String erpCode = String.valueOf(row.get("CODE"));
-                String spec = (String) row.get("SPEC");
-                Integer price = toInteger(row.get("OUTPR"));
+                String gyu = (String) row.get("GYU");
+                Integer price = toInteger(row.get("OUTPR")); // OUTPR is the unit price in ITEM table
                 Integer stock = toInteger(row.get("JEGO"));
 
-                String comboName = (spec != null && !spec.trim().isEmpty()) ? spec.trim() : ("옵션 " + erpCode);
+                String comboName = (gyu != null && !gyu.trim().isEmpty()) ? gyu.trim() : ("옵션 " + erpCode);
 
                 combinations.add(Combination.builder()
                         .id(erpCode)
@@ -168,7 +168,7 @@ public class ErpSyncService {
         }
     }
 
-    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000)
+    // @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000)
     @Transactional
     public void syncStockRealtime() {
         try {
