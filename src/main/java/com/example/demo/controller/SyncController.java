@@ -17,10 +17,9 @@ public class SyncController {
     private final ErpSyncService erpSyncService;
 
     @PostMapping("/erp")
-    public ResponseEntity<String> syncWithErp() {
+    public ResponseEntity<?> syncWithErp() {
         try {
-            erpSyncService.syncProducts();
-            return ResponseEntity.ok("Synchronization successful");
+            return ResponseEntity.ok(erpSyncService.syncProducts());
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Error during synchronization: " + e.getMessage());
         }

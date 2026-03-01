@@ -37,8 +37,9 @@ public class ErpSyncService {
     }
 
     @Transactional
-    public void syncProducts() {
+    public List<Product> syncProducts() {
         log.info("Starting ERP product synchronization...");
+        List<Product> syncedProducts = new java.util.ArrayList<>();
 
         // 1. Get Categories from PARTCODE table
         String categoryQuery = "SELECT PARTCODE, MIDCODE, SMALLCODE, PART FROM PARTCODE";
@@ -59,7 +60,7 @@ public class ErpSyncService {
 
         // 2. Get Items from ITEM table
         // Fetch GYU (Specification/규격) if available
-        String itemQuery = "SELECT CODE, ITEM, GYU, OUTPR, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
+        String itemQuery = "SELECT CODE, ITEM, GYU, OUTC, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
         List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(itemQuery);
 
         // Grouping items by name manually to process them properly
@@ -82,7 +83,7 @@ public class ErpSyncService {
 
             // Get categories from the first row of the entire group
             Map<String, Object> firstRow = rows.get(0);
-            Integer basePrice = toInteger(firstRow.get("OUTPR"));
+            Integer basePrice = toInteger(firstRow.get("OUTC"));
             Integer part = toInteger(firstRow.get("PARTCODE"));
             Integer mid = toInteger(firstRow.get("MIDCODE"));
             Integer small = toInteger(firstRow.get("SMALLCODE"));
@@ -127,7 +128,7 @@ public class ErpSyncService {
             for (Map<String, Object> row : rows) {
                 String erpCode = String.valueOf(row.get("CODE"));
                 String gyu = (String) row.get("GYU");
-                Integer price = toInteger(row.get("OUTPR")); // OUTPR is the unit price in ITEM table
+                Integer price = toInteger(row.get("OUTC")); // Using OUTC for price as requested
                 Integer stock = toInteger(row.get("JEGO"));
 
                 String comboName = (gyu != null && !gyu.trim().isEmpty()) ? gyu.trim() : ("옵션 " + erpCode);
@@ -158,14 +159,18 @@ public class ErpSyncService {
                 product.getCombinations().addAll(combinations);
             }
 
-            productRepository.save(product);
+            syncedProducts.add(product);
             log.info("Synced product: {} (Price options: {})", name, rows.size());
         }
-        log.info("ERP product synchronization completed. Total items processed.");
+
+        List<Product> savedProducts = productRepository.saveAll(syncedProducts);
+        log.info("ERP product synchronization completed. Total items processed: {}", savedProducts.size());
+
         List<Category> cats = categoryRepository.findAll();
         for (Category c : cats) {
             log.info("Final DB Category: id={}, name={}, parent={}", c.getId(), c.getName(), c.getParentId());
         }
+        return savedProducts;
     }
 
     // @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000)

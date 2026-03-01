@@ -56,4 +56,10 @@ public class ProductController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    @PostMapping("/admin/bulk-delete")
+    public ResponseEntity<Void> deleteProducts(@RequestBody List<Long> ids) {
+        productService.deleteProducts(ids);
+        return ResponseEntity.ok().build();
+    }
 }

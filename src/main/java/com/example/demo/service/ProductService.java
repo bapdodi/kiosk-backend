@@ -109,6 +109,12 @@ public class ProductService {
     }
 
     @Transactional
+    public void deleteProducts(List<Long> ids) {
+        List<Product> productsToDelete = productRepository.findAllById(ids);
+        productRepository.deleteAll(productsToDelete);
+    }
+
+    @Transactional
     public boolean deleteProduct(Long id) {
         return productRepository.findById(id)
                 .map(product -> {
