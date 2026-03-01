@@ -41,22 +41,26 @@ public class ErpSyncService {
         log.info("Starting ERP product synchronization...");
         List<Product> syncedProducts = new java.util.ArrayList<>();
 
-        // 1. Get Categories from PARTCODE table
-        String categoryQuery = "SELECT PARTCODE, MIDCODE, SMALLCODE, PART FROM PARTCODE";
-        List<Map<String, Object>> erpCategories = erpJdbcTemplate.queryForList(categoryQuery);
-
-        for (Map<String, Object> row : erpCategories) {
-            int part = toInteger(row.get("PARTCODE"));
-            int mid = toInteger(row.get("MIDCODE"));
-            int small = toInteger(row.get("SMALLCODE"));
-            String name = (String) row.get("PART");
-
-            if (name == null || name.trim().isEmpty()) {
-                name = "ERP " + part;
-            }
-
-            ensureCategoryExists(part, mid, small, name.trim());
-        }
+        // 1. Category synchronization from PARTCODE table is disabled as requested
+        /*
+         * String categoryQuery =
+         * "SELECT PARTCODE, MIDCODE, SMALLCODE, PART FROM PARTCODE";
+         * List<Map<String, Object>> erpCategories =
+         * erpJdbcTemplate.queryForList(categoryQuery);
+         * 
+         * for (Map<String, Object> row : erpCategories) {
+         * int part = toInteger(row.get("PARTCODE"));
+         * int mid = toInteger(row.get("MIDCODE"));
+         * int small = toInteger(row.get("SMALLCODE"));
+         * String name = (String) row.get("PART");
+         * 
+         * if (name == null || name.trim().isEmpty()) {
+         * name = "ERP " + part;
+         * }
+         * 
+         * ensureCategoryExists(part, mid, small, name.trim());
+         * }
+         */
 
         // 2. Get Items from ITEM table
         // Fetch GYU (Specification/규격) if available
@@ -92,11 +96,14 @@ public class ErpSyncService {
             String subCatId = String.format("erp-%d-%d-0", part, mid);
             String detailCatId = String.format("erp-%d-%d-%d", part, mid, small);
 
-            ensureCategoryExists(part, 0, 0, "ERP " + part);
-            if (mid != 0)
-                ensureCategoryExists(part, mid, 0, "ERP " + mid);
-            if (small != 0)
-                ensureCategoryExists(part, mid, small, name);
+            /*
+             * Categories are no longer auto-created during product sync
+             * ensureCategoryExists(part, 0, 0, "ERP " + part);
+             * if (mid != 0)
+             * ensureCategoryExists(part, mid, 0, "ERP " + mid);
+             * if (small != 0)
+             * ensureCategoryExists(part, mid, small, name);
+             */
 
             Product product = productRepository.findByName(name).stream().findFirst().orElse(null);
 
