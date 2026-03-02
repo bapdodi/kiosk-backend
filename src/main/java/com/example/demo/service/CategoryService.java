@@ -17,7 +17,7 @@ public class CategoryService {
     private final CategoryRepository categoryRepository;
 
     public List<Category> getAllCategories() {
-        return categoryRepository.findAll();
+        return categoryRepository.findAllByOrderBySortOrderAsc();
     }
 
     public List<Category> getCategoriesByLevel(String level) {
@@ -40,8 +40,21 @@ public class CategoryService {
         category.setName(categoryDetails.getName());
         category.setParentId(categoryDetails.getParentId());
         category.setLevel(categoryDetails.getLevel());
+        if (categoryDetails.getSortOrder() != null) {
+            category.setSortOrder(categoryDetails.getSortOrder());
+        }
 
         return categoryRepository.save(category);
+    }
+
+    @Transactional
+    public void updateCategoryOrders(List<Category> categories) {
+        for (Category input : categories) {
+            categoryRepository.findById(input.getId()).ifPresent(c -> {
+                c.setSortOrder(input.getSortOrder());
+                categoryRepository.save(c);
+            });
+        }
     }
 
     @Transactional

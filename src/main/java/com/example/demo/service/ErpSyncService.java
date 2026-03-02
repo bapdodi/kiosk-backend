@@ -90,11 +90,8 @@ public class ErpSyncService {
             Integer basePrice = toInteger(firstRow.get("OUTC"));
             Integer part = toInteger(firstRow.get("PARTCODE"));
             Integer mid = toInteger(firstRow.get("MIDCODE"));
-            Integer small = toInteger(firstRow.get("SMALLCODE"));
-
             String mainCatId = String.format("erp-%d-0-0", part);
             String subCatId = String.format("erp-%d-%d-0", part, mid);
-            String detailCatId = String.format("erp-%d-%d-%d", part, mid, small);
 
             /*
              * Categories are no longer auto-created during product sync
@@ -113,7 +110,6 @@ public class ErpSyncService {
                         .price(basePrice)
                         .mainCategory(mainCatId)
                         .subCategory(subCatId)
-                        .detailCategory(detailCatId)
                         .hashtags(new java.util.ArrayList<>())
                         .images(new java.util.ArrayList<>())
                         .optionGroups(new java.util.ArrayList<>())
@@ -126,7 +122,6 @@ public class ErpSyncService {
                 if (product.getIsCategoryModified() == null || !product.getIsCategoryModified()) {
                     product.setMainCategory(mainCatId);
                     product.setSubCategory(subCatId);
-                    product.setDetailCategory(detailCatId);
                 }
             }
 
@@ -155,15 +150,40 @@ public class ErpSyncService {
                 product.setErpCode(single.getErpCode());
                 product.setStock(single.getStock());
                 product.setIsComplexOptions(false);
-                product.setCombinations(new java.util.ArrayList<>());
+                if (product.getCombinations() != null) {
+                    product.getCombinations().clear();
+                } else {
+                    product.setCombinations(new java.util.ArrayList<>());
+                }
             } else {
                 product.setErpCode(null);
                 product.setStock(combinations.stream().mapToInt(Combination::getStock).sum());
-                product.setIsComplexOptions(true); // Multiple rows = multiple combinations
-                if (product.getCombinations() == null)
+                product.setIsComplexOptions(true);
+                if (product.getCombinations() == null) {
                     product.setCombinations(new java.util.ArrayList<>());
+                }
+
+                java.util.Map<String, Combination> existingMap = new java.util.HashMap<>();
+                for (Combination c : product.getCombinations()) {
+                    if (c.getErpCode() != null) {
+                        existingMap.put(c.getErpCode(), c);
+                    }
+                }
+
                 product.getCombinations().clear();
-                product.getCombinations().addAll(combinations);
+
+                for (Combination newC : combinations) {
+                    Combination existing = existingMap.get(newC.getErpCode());
+                    if (existing != null) {
+                        existing.setName(newC.getName());
+                        existing.setPrice(newC.getPrice());
+                        existing.setStock(newC.getStock());
+                        existing.setId(newC.getId());
+                        product.getCombinations().add(existing);
+                    } else {
+                        product.getCombinations().add(newC);
+                    }
+                }
             }
 
             syncedProducts.add(product);
@@ -202,22 +222,18 @@ public class ErpSyncService {
     }
 
     private void ensureCategoryExists(int part, int mid, int small, String name) {
-        String id = String.format("erp-%d-%d-%d", part, mid, small);
+        String id = String.format("erp-%d-%d-0", part, mid);
 
         String level;
         String parentId = null;
 
-        if (mid == 0 && small == 0) {
+        if (mid == 0) {
             level = "main";
-        } else if (small == 0) {
+            id = String.format("erp-%d-0-0", part);
+        } else {
             level = "sub";
             parentId = String.format("erp-%d-0-0", part);
             ensureCategoryExists(part, 0, 0, "ERP " + part);
-        } else {
-            level = "detail";
-            parentId = String.format("erp-%d-%d-0", part, mid);
-            ensureCategoryExists(part, 0, 0, "ERP " + part);
-            ensureCategoryExists(part, mid, 0, "ERP " + mid);
         }
 
         Category category = categoryRepository.findById(id).orElse(null);

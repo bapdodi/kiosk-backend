@@ -42,8 +42,7 @@ public class ProductService {
                     product.setName(productDetails.getName());
                     product.setDescription(productDetails.getDescription());
                     boolean categoryChanged = !productDetails.getMainCategory().equals(product.getMainCategory())
-                            || !productDetails.getSubCategory().equals(product.getSubCategory())
-                            || !productDetails.getDetailCategory().equals(product.getDetailCategory());
+                            || !productDetails.getSubCategory().equals(product.getSubCategory());
 
                     if (categoryChanged) {
                         product.setIsCategoryModified(true);
@@ -51,7 +50,6 @@ public class ProductService {
 
                     product.setMainCategory(productDetails.getMainCategory());
                     product.setSubCategory(productDetails.getSubCategory());
-                    product.setDetailCategory(productDetails.getDetailCategory());
                     product.setPrice(productDetails.getPrice());
                     product.setHashtags(productDetails.getHashtags());
                     product.setImages(productDetails.getImages());

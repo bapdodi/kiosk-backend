@@ -66,4 +66,15 @@ public class CategoryController {
             return ResponseEntity.internalServerError().body(e.getMessage());
         }
     }
+
+    @PostMapping("/admin/reorder")
+    public ResponseEntity<?> reorderCategories(@RequestBody List<Category> categories) {
+        try {
+            categoryService.updateCategoryOrders(categories);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
 }

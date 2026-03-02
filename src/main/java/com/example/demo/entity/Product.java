@@ -45,7 +45,6 @@ public class Product {
 
     private String mainCategory;
     private String subCategory;
-    private String detailCategory;
 
     @Column(nullable = false)
     private Integer price;
@@ -56,11 +55,13 @@ public class Product {
 
     @ElementCollection
     @CollectionTable(name = "product_hashtags", joinColumns = @JoinColumn(name = "product_id"))
+    @org.hibernate.annotations.BatchSize(size = 500)
     private List<String> hashtags;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "product_images", joinColumns = @JoinColumn(name = "product_id"))
     @Column(name = "image_url")
+    @org.hibernate.annotations.BatchSize(size = 500)
     @Builder.Default
     private List<String> images = new ArrayList<>();
 
@@ -72,9 +73,11 @@ public class Product {
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "product_id")
+    @org.hibernate.annotations.BatchSize(size = 500)
     private List<OptionGroup> optionGroups;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "product_id")
+    @org.hibernate.annotations.BatchSize(size = 500)
     private List<Combination> combinations;
 }
