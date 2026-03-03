@@ -113,6 +113,13 @@ public class ProductService {
     }
 
     @Transactional
+    public void updateProducts(List<Product> products) {
+        for (Product productDetails : products) {
+            updateProduct(productDetails.getId(), productDetails);
+        }
+    }
+
+    @Transactional
     public boolean deleteProduct(Long id) {
         return productRepository.findById(id)
                 .map(product -> {

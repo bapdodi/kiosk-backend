@@ -62,4 +62,10 @@ public class ProductController {
         productService.deleteProducts(ids);
         return ResponseEntity.ok().build();
     }
+
+    @PutMapping("/admin/bulk-update")
+    public ResponseEntity<Void> updateProducts(@RequestBody List<Product> products) {
+        productService.updateProducts(products);
+        return ResponseEntity.ok().build();
+    }
 }
