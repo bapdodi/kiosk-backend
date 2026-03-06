@@ -280,20 +280,49 @@ public class ErpSyncService {
                         ? order.getErpCustomerCode()
                         : "1";
 
+                int actualPrice = item.getFinalPrice();
+                try {
+                    Map<String, Object> prices = erpJdbcTemplate.queryForMap(
+                            "SELECT ISNULL(OUTA,0) as outA, ISNULL(OUTB,0) as outB, ISNULL(OUTC,0) as outC FROM ITEM WHERE CODE = ?",
+                            item.getErpCode());
+                    int itemOutA = toInteger(prices.get("outA"));
+                    int itemOutB = toInteger(prices.get("outB"));
+                    int itemOutC = toInteger(prices.get("outC"));
+
+                    int danga = 2; // Default OUTA
+                    try {
+                        danga = erpJdbcTemplate.queryForObject(
+                                "SELECT ISNULL(CAST(DANGA AS INT), 2) FROM GURAE WHERE CODE = ?", Integer.class,
+                                custCode);
+                    } catch (Exception e) {
+                        log.warn("Failed to get DANGA for customer {}, defaulting to 2", custCode);
+                    }
+
+                    if (danga == 2 && itemOutA > 0)
+                        actualPrice = itemOutA;
+                    else if (danga == 3 && itemOutB > 0)
+                        actualPrice = itemOutB;
+                    else if (danga == 4 && itemOutC > 0)
+                        actualPrice = itemOutC;
+                } catch (Exception e) {
+                    log.warn("Failed to fetch exact price for item {}, using frontend finalPrice", item.getErpCode());
+                }
+
+                int ea = item.getQuantity() != null ? item.getQuantity() : 1;
+                long gum = (long) actualPrice * ea;
+
                 // 1) Insert into SUJU
                 String insertSuju = "INSERT INTO SUJU (dDATE, ITEMCODE, PRICE, EA, BALJUNO, CUST) VALUES (?, ?, ?, ?, ?, ?)";
                 erpJdbcTemplate.update(insertSuju,
                         sujuDateStr,
                         item.getErpCode(),
-                        item.getFinalPrice(),
-                        item.getQuantity() != null ? item.getQuantity() : 1,
+                        actualPrice,
+                        ea,
                         "KIOSK-" + order.getId(),
                         custCode);
 
                 // 2) Insert into ILxx (Transaction History so it shows in '최근 거래')
                 // GUM = PRICE * EA
-                int ea = item.getQuantity() != null ? item.getQuantity() : 1;
-                long gum = (long) item.getFinalPrice() * ea;
 
                 String insertIl = "INSERT INTO " + ilTable
                         + " (dNO, EDITNO, dDATE, ITEMCODE, CUST, KIND, PRICE, EA, GUM, VAT, SA, DAECHE, EA2, BIGO, BIGO2, BIGO3, ORDERCODE, POINT, JIJOM) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -310,7 +339,7 @@ public class ErpSyncService {
                         item.getErpCode(),
                         custCode, // CUST
                         "3", // KIND = 3 (외상매출/외출)
-                        item.getFinalPrice(), // PRICE
+                        actualPrice, // PRICE
                         ea, // EA
                         gum, // GUM
                         0, // VAT

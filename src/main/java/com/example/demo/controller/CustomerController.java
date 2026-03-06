@@ -22,6 +22,7 @@ public class CustomerController {
     @GetMapping
     public List<Map<String, Object>> getCustomers() {
         return erpJdbcTemplate
-                .queryForList("SELECT LTRIM(RTRIM(CODE)) as CODE, LTRIM(RTRIM(NAME)) as NAME FROM GURAE ORDER BY NAME");
+                .queryForList(
+                        "SELECT LTRIM(RTRIM(CODE)) as CODE, LTRIM(RTRIM(NAME)) as NAME FROM GURAE WHERE KIND = '1' ORDER BY NAME");
     }
 }
