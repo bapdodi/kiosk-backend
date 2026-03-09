@@ -30,6 +30,18 @@ public class ProductService {
 
     @Transactional
     public Product createProduct(Product product) {
+        if (product.getOptionGroups() != null) {
+            for (int i = 0; i < product.getOptionGroups().size(); i++) {
+                product.getOptionGroups().get(i).setProduct(product);
+                product.getOptionGroups().get(i).setSortOrder(i);
+            }
+        }
+        if (product.getCombinations() != null) {
+            for (int i = 0; i < product.getCombinations().size(); i++) {
+                product.getCombinations().get(i).setProduct(product);
+                product.getCombinations().get(i).setSortOrder(i);
+            }
+        }
         Product saved = productRepository.save(product);
         renameProductImages(saved);
         return productRepository.save(saved);
@@ -57,12 +69,22 @@ public class ProductService {
 
                     product.getOptionGroups().clear();
                     if (productDetails.getOptionGroups() != null) {
-                        product.getOptionGroups().addAll(productDetails.getOptionGroups());
+                        for (int i = 0; i < productDetails.getOptionGroups().size(); i++) {
+                            com.example.demo.entity.OptionGroup group = productDetails.getOptionGroups().get(i);
+                            group.setProduct(product);
+                            group.setSortOrder(i);
+                            product.getOptionGroups().add(group);
+                        }
                     }
 
                     product.getCombinations().clear();
                     if (productDetails.getCombinations() != null) {
-                        product.getCombinations().addAll(productDetails.getCombinations());
+                        for (int i = 0; i < productDetails.getCombinations().size(); i++) {
+                            com.example.demo.entity.Combination comb = productDetails.getCombinations().get(i);
+                            comb.setProduct(product);
+                            comb.setSortOrder(i);
+                            product.getCombinations().add(comb);
+                        }
                     }
 
                     Product saved = productRepository.save(product);
