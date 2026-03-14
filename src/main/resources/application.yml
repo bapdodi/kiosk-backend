@@ -27,4 +27,4 @@ erp:
   datasource:
     url: ${ERP_DB_URL:jdbc:sqlserver://43.201.18.30:1433;databaseName=DR_ERP;trustServerCertificate=true}
     username: ${ERP_DB_USERNAME:sa}
-    password: ${ERP_DB_PASSWORD:Password123!}
+    password: ${ERP_DB_PASSWORD:1111!}
