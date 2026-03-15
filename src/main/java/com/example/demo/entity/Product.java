@@ -80,4 +80,8 @@ public class Product {
     @jakarta.persistence.OrderBy("sortOrder ASC")
     @org.hibernate.annotations.BatchSize(size = 500)
     private List<Combination> combinations;
+
+    @Column(nullable = false, length = 255)
+    @Builder.Default
+    private String sortOrder = "80000000";
 }

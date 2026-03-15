@@ -18,4 +18,6 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("UPDATE Product p SET p.stock = :stock WHERE p.erpCode = :erpCode")
     void updateStockByErpCode(@org.springframework.data.repository.query.Param("erpCode") String erpCode,
             @org.springframework.data.repository.query.Param("stock") Integer stock);
+
+    List<Product> findAllByOrderBySortOrderAscIdAsc();
 }

@@ -24,7 +24,7 @@ services:
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       ERP_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;databaseName=DR_ERP;trustServerCertificate=true
       ERP_DATASOURCE_USERNAME: sa
-      ERP_DATASOURCE_PASSWORD: Password123!
+      ERP_DATASOURCE_PASSWORD: "1111"
     ports:
       - "8080:8080"
     volumes:
@@ -35,7 +35,7 @@ services:
     restart: always
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "Password123!"
+      MSSQL_SA_PASSWORD: "1111"
       MSSQL_PID: "Developer"
     ports:
       - "1433:1433"

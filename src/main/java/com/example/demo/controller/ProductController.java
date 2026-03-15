@@ -68,4 +68,10 @@ public class ProductController {
         productService.updateProducts(products);
         return ResponseEntity.ok().build();
     }
+
+    @PostMapping("/admin/reorder")
+    public ResponseEntity<Void> reorderProducts(@RequestBody List<Product> products) {
+        productService.updateProductOrders(products);
+        return ResponseEntity.ok().build();
+    }
 }

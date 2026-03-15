@@ -21,7 +21,7 @@ public class ProductService {
     private final FileService fileService;
 
     public List<Product> getAllProducts() {
-        return productRepository.findAll();
+        return productRepository.findAllByOrderBySortOrderAscIdAsc();
     }
 
     public Optional<Product> getProductById(Long id) {
@@ -66,6 +66,7 @@ public class ProductService {
                     product.setHashtags(productDetails.getHashtags());
                     product.setImages(productDetails.getImages());
                     product.setIsComplexOptions(productDetails.getIsComplexOptions());
+                    product.setSortOrder(productDetails.getSortOrder());
 
                     product.getOptionGroups().clear();
                     if (productDetails.getOptionGroups() != null) {
@@ -138,6 +139,16 @@ public class ProductService {
     public void updateProducts(List<Product> products) {
         for (Product productDetails : products) {
             updateProduct(productDetails.getId(), productDetails);
+        }
+    }
+
+    @Transactional
+    public void updateProductOrders(List<Product> products) {
+        for (Product input : products) {
+            productRepository.findById(input.getId()).ifPresent(p -> {
+                p.setSortOrder(input.getSortOrder());
+                productRepository.save(p);
+            });
         }
     }
 
