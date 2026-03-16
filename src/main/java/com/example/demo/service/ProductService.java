@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +24,17 @@ public class ProductService {
 
     public List<Product> getAllProducts() {
         return productRepository.findAllByOrderBySortOrderAscIdAsc();
+    }
+
+    public Page<Product> getAllProductsPaged(String mainCategory, String subCategory, Pageable pageable) {
+        if (mainCategory == null || mainCategory.isEmpty()) {
+            return productRepository.findAllByOrderBySortOrderAscIdAsc(pageable);
+        } else if (subCategory == null || subCategory.isEmpty() || subCategory.equals("all")) {
+            return productRepository.findAllByMainCategoryOrderBySortOrderAscIdAsc(mainCategory, pageable);
+        } else {
+            return productRepository.findAllByMainCategoryAndSubCategoryOrderBySortOrderAscIdAsc(mainCategory,
+                    subCategory, pageable);
+        }
     }
 
     public Optional<Product> getProductById(Long id) {
