@@ -27,6 +27,11 @@ public class OrderService {
 
     @Transactional
     public Order createOrder(Order order) {
+        // Validate customer
+        if (!erpSyncService.validateCustomer(order.getCustomerName(), order.getErpCustomerCode())) {
+            throw new IllegalArgumentException("올바르지 않은 상호명 또는 코드입니다. 다시 선택해 주세요.");
+        }
+
         order.setTimestamp(LocalDateTime.now());
         if (order.getStatus() == null) {
             order.setStatus("pending");

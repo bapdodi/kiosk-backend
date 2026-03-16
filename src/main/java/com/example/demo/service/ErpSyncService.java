@@ -361,6 +361,22 @@ public class ErpSyncService {
         }
     }
 
+    public boolean validateCustomer(String name, String code) {
+        if (name == null || code == null)
+            return false;
+        try {
+            Integer count = erpJdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM GURAE WHERE KIND = '1' AND LTRIM(RTRIM(CODE)) = ? AND LTRIM(RTRIM(NAME)) = ?",
+                    Integer.class,
+                    code.trim(),
+                    name.trim());
+            return count != null && count > 0;
+        } catch (Exception e) {
+            log.error("Customer validation failed for {} ({}): {}", name, code, e.getMessage());
+            return false;
+        }
+    }
+
     private Integer toInteger(Object obj) {
         if (obj == null)
             return 0;
