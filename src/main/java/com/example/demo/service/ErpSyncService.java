@@ -310,6 +310,7 @@ public class ErpSyncService {
 
                 int ea = item.getQuantity() != null ? item.getQuantity() : 1;
                 long gum = (long) actualPrice * ea;
+                long vat = gum / 10;
 
                 // 1) Insert into SUJU
                 String insertSuju = "INSERT INTO SUJU (dDATE, ITEMCODE, PRICE, EA, BALJUNO, CUST) VALUES (?, ?, ?, ?, ?, ?)";
@@ -342,7 +343,7 @@ public class ErpSyncService {
                         actualPrice, // PRICE
                         ea, // EA
                         gum, // GUM
-                        0, // VAT
+                        vat, // VAT
                         0, // SA
                         0, // DAECHE
                         0, // EA2
