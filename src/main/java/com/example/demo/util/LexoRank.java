@@ -12,8 +12,10 @@ public class LexoRank {
     }
 
     public static String between(String prev, String next) {
-        if (prev == null || prev.isEmpty()) prev = String.valueOf(MIN_CHAR);
-        if (next == null || next.isEmpty()) next = String.valueOf(MAX_CHAR).repeat(prev.length() + 1);
+        if (prev == null || prev.isEmpty())
+            prev = String.valueOf(MIN_CHAR);
+        if (next == null || next.isEmpty())
+            next = String.valueOf(MAX_CHAR).repeat(prev.length() + 1);
 
         int maxLength = Math.max(prev.length(), next.length());
         StringBuilder result = new StringBuilder();
