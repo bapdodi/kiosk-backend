@@ -3,6 +3,7 @@ package com.example.demo.service;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -56,8 +57,10 @@ public class ProductService {
             }
         }
         Product saved = productRepository.save(product);
-        renameProductImages(saved);
-        return productRepository.save(saved);
+        if (renameProductImages(saved)) {
+            return productRepository.save(saved);
+        }
+        return saved;
     }
 
     @Transactional
@@ -101,24 +104,23 @@ public class ProductService {
                         }
                     }
 
-                    Product saved = productRepository.save(product);
-                    renameProductImages(saved);
-                    return productRepository.save(saved);
+                    renameProductImages(product);
+                    return productRepository.save(product);
                 });
     }
 
-    private void renameProductImages(Product product) {
+    private boolean renameProductImages(Product product) {
         if (product.getImages() == null || product.getImages().isEmpty())
-            return;
+            return false;
 
         java.util.List<String> newUrls = new java.util.ArrayList<>();
+        boolean changed = false;
 
         for (int i = 0; i < product.getImages().size(); i++) {
             String url = product.getImages().get(i);
             if (url != null && url.contains("/uploads/")) {
                 try {
                     String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
-                    // Decode the filename from URL
                     String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
 
                     String extension = oldFileName.contains(".") ? oldFileName.substring(oldFileName.lastIndexOf("."))
@@ -132,6 +134,7 @@ public class ProductService {
 
                     fileService.renameFile(oldFileName, expectedName);
                     newUrls.add(fileService.getFileUrl(expectedName));
+                    changed = true;
                 } catch (Exception e) {
                     newUrls.add(url);
                 }
@@ -139,7 +142,10 @@ public class ProductService {
                 newUrls.add(url);
             }
         }
-        product.setImages(newUrls);
+        if (changed) {
+            product.setImages(newUrls);
+        }
+        return changed;
     }
 
     @Transactional
@@ -157,12 +163,14 @@ public class ProductService {
 
     @Transactional
     public void updateProductOrders(List<Product> products) {
-        for (Product input : products) {
-            productRepository.findById(input.getId()).ifPresent(p -> {
-                p.setSortOrder(input.getSortOrder());
-                productRepository.save(p);
-            });
-        }
+        Map<Long, String> orderMap = products.stream()
+                .collect(java.util.stream.Collectors.toMap(Product::getId, Product::getSortOrder));
+        List<Product> existing = productRepository.findAllById(orderMap.keySet());
+        existing.forEach(p -> {
+            String newOrder = orderMap.get(p.getId());
+            if (newOrder != null) p.setSortOrder(newOrder);
+        });
+        productRepository.saveAll(existing);
     }
 
     @Transactional

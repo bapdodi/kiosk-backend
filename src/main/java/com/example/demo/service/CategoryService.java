@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,12 +50,14 @@ public class CategoryService {
 
     @Transactional
     public void updateCategoryOrders(List<Category> categories) {
-        for (Category input : categories) {
-            categoryRepository.findById(input.getId()).ifPresent(c -> {
-                c.setSortOrder(input.getSortOrder());
-                categoryRepository.save(c);
-            });
-        }
+        Map<String, String> orderMap = categories.stream()
+                .collect(java.util.stream.Collectors.toMap(Category::getId, Category::getSortOrder));
+        List<Category> existing = categoryRepository.findAllById(orderMap.keySet());
+        existing.forEach(c -> {
+            String newOrder = orderMap.get(c.getId());
+            if (newOrder != null) c.setSortOrder(newOrder);
+        });
+        categoryRepository.saveAll(existing);
     }
 
     @Transactional
