@@ -36,3 +36,7 @@ out/
 ### VS Code ###
 .vscode/
 /uploads
+
+# Local environment overrides (never commit secrets)
+.env
+.env.local

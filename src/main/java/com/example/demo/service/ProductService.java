@@ -31,10 +31,9 @@ public class ProductService {
         if (mainCategory == null || mainCategory.isEmpty()) {
             return productRepository.findAllByOrderBySortOrderAscIdAsc(pageable);
         } else if (subCategory == null || subCategory.isEmpty() || subCategory.equals("all")) {
-            return productRepository.findAllByMainCategoryOrderBySortOrderAscIdAsc(mainCategory, pageable);
+            return productRepository.findByCategoryMain(mainCategory, pageable);
         } else {
-            return productRepository.findAllByMainCategoryAndSubCategoryOrderBySortOrderAscIdAsc(mainCategory,
-                    subCategory, pageable);
+            return productRepository.findByCategoryMainAndSub(mainCategory, subCategory, pageable);
         }
     }
 
@@ -69,15 +68,18 @@ public class ProductService {
                 .map(product -> {
                     product.setName(productDetails.getName());
                     product.setDescription(productDetails.getDescription());
-                    boolean categoryChanged = !productDetails.getMainCategory().equals(product.getMainCategory())
-                            || !productDetails.getSubCategory().equals(product.getSubCategory());
 
+                    java.util.Set<com.example.demo.entity.CategoryRef> newCategories = productDetails.getCategories() != null
+                            ? productDetails.getCategories()
+                            : new java.util.LinkedHashSet<>();
+
+                    boolean categoryChanged = !newCategories.equals(product.getCategories());
                     if (categoryChanged) {
                         product.setIsCategoryModified(true);
                     }
 
-                    product.setMainCategory(productDetails.getMainCategory());
-                    product.setSubCategory(productDetails.getSubCategory());
+                    product.getCategories().clear();
+                    product.getCategories().addAll(newCategories);
                     product.setPrice(productDetails.getPrice());
                     product.setGyu(productDetails.getGyu());
                     product.setHashtags(productDetails.getHashtags());

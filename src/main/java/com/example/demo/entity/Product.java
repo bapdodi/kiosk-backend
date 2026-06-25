@@ -1,7 +1,9 @@
 package com.example.demo.entity;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.CollectionTable;
@@ -43,8 +45,15 @@ public class Product {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    private String mainCategory;
-    private String subCategory;
+    /**
+     * 상품이 소속된 카테고리 목록. 하나의 상품이 여러 (대분류+중분류) 쌍에 동시에 들어갈 수 있다.
+     * 중복 노출을 막기 위해 Set 으로 관리한다.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "product_categories", joinColumns = @JoinColumn(name = "product_id"))
+    @org.hibernate.annotations.BatchSize(size = 500)
+    @Builder.Default
+    private Set<CategoryRef> categories = new LinkedHashSet<>();
 
     @Column(nullable = false)
     private Integer price;

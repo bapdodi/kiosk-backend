@@ -106,11 +106,12 @@ public class ErpSyncService {
             Product product = findExistingProduct(rows, name);
 
             if (product == null) {
+                java.util.Set<com.example.demo.entity.CategoryRef> erpCategories = new java.util.LinkedHashSet<>();
+                erpCategories.add(new com.example.demo.entity.CategoryRef(mainCatId, subCatId));
                 product = Product.builder()
                         .name(name)
                         .price(basePrice)
-                        .mainCategory(mainCatId)
-                        .subCategory(subCatId)
+                        .categories(erpCategories)
                         .hashtags(new java.util.ArrayList<>())
                         .images(new java.util.ArrayList<>())
                         .optionGroups(new java.util.ArrayList<>())
@@ -120,9 +121,13 @@ public class ErpSyncService {
                         .build();
             } else {
                 product.setPrice(basePrice);
+                // 대시보드에서 카테고리를 수동 변경하지 않은 상품만 ERP 분류로 갱신한다.
                 if (product.getIsCategoryModified() == null || !product.getIsCategoryModified()) {
-                    product.setMainCategory(mainCatId);
-                    product.setSubCategory(subCatId);
+                    if (product.getCategories() == null) {
+                        product.setCategories(new java.util.LinkedHashSet<>());
+                    }
+                    product.getCategories().clear();
+                    product.getCategories().add(new com.example.demo.entity.CategoryRef(mainCatId, subCatId));
                 }
             }
 

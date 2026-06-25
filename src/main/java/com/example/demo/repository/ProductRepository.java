@@ -30,7 +30,16 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Page<Product> findAllByOrderBySortOrderAscIdAsc(Pageable pageable);
 
-    Page<Product> findAllByMainCategoryOrderBySortOrderAscIdAsc(String mainCategory, Pageable pageable);
+    /** 대분류에 소속된 상품 (여러 카테고리 중 하나라도 일치). 같은 대분류에 중분류가 여러 개여도 상품은 한 번만 나오도록 DISTINCT. */
+    @Query(value = "SELECT DISTINCT p FROM Product p JOIN p.categories c WHERE c.mainCategory = :mainCategory",
+            countQuery = "SELECT COUNT(DISTINCT p) FROM Product p JOIN p.categories c WHERE c.mainCategory = :mainCategory")
+    Page<Product> findByCategoryMain(
+            @org.springframework.data.repository.query.Param("mainCategory") String mainCategory, Pageable pageable);
 
-    Page<Product> findAllByMainCategoryAndSubCategoryOrderBySortOrderAscIdAsc(String mainCategory, String subCategory, Pageable pageable);
+    /** (대분류 + 중분류) 쌍에 소속된 상품. */
+    @Query(value = "SELECT DISTINCT p FROM Product p JOIN p.categories c WHERE c.mainCategory = :mainCategory AND c.subCategory = :subCategory",
+            countQuery = "SELECT COUNT(DISTINCT p) FROM Product p JOIN p.categories c WHERE c.mainCategory = :mainCategory AND c.subCategory = :subCategory")
+    Page<Product> findByCategoryMainAndSub(
+            @org.springframework.data.repository.query.Param("mainCategory") String mainCategory,
+            @org.springframework.data.repository.query.Param("subCategory") String subCategory, Pageable pageable);
 }

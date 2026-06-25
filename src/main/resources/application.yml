@@ -1,8 +1,9 @@
 spring:
   datasource:
-    url: jdbc:postgresql://43.201.18.30:5432/kiosk
-    username: admin
-    password: password
+    # 로컬 docker-compose 의 db 서비스 (호스트 5433 → 컨테이너 5432). 원격은 43.201.18.30:5432 였음.
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/kiosk}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -14,7 +15,8 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
 server:
-  port: 8080
+  # 기본값 8080. 로컬에서 8080 이 점유된 경우 .env 의 SERVER_PORT 로 override (예: 8093).
+  port: ${SERVER_PORT:8080}
 
 logging:
   level:
@@ -25,6 +27,7 @@ logging:
 
 erp:
   datasource:
-    url: ${ERP_DB_URL:jdbc:sqlserver://43.201.18.30:1433;databaseName=DR_ERP;trustServerCertificate=true}
-    username: ${ERP_DB_USERNAME:sa}
-    password: ${ERP_DB_PASSWORD:1111}
+    # 로컬 docker-compose mssql 서비스 (호스트 1433). 원격은 43.201.18.30:1433 였음.
+    url: ${ERP_DATASOURCE_URL:${ERP_DB_URL:jdbc:sqlserver://localhost:1433;databaseName=DR_ERP;trustServerCertificate=true}}
+    username: ${ERP_DATASOURCE_USERNAME:${ERP_DB_USERNAME:sa}}
+    password: ${ERP_DATASOURCE_PASSWORD:${ERP_DB_PASSWORD:Erp_Local_2026!}}

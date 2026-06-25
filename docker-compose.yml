@@ -7,7 +7,9 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
     ports:
-      - "5432:5432"
+      # 호스트 5432 는 무관한 postgres 컨테이너가 이미 점유 중이라 5433 으로 매핑.
+      # 컨테이너 내부 포트는 5432 그대로이므로 compose 내 backend 의 db:5432 연결은 영향 없음.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -22,9 +24,11 @@ services:
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: password
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      # 컨테이너 내부는 8080 유지(아래 8080:8080 매핑과 일치). 로컬 gradle 실행 기본값은 8093.
+      SERVER_PORT: 8080
       ERP_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;databaseName=DR_ERP;trustServerCertificate=true
       ERP_DATASOURCE_USERNAME: sa
-      ERP_DATASOURCE_PASSWORD: "1111"
+      ERP_DATASOURCE_PASSWORD: ${ERP_DATASOURCE_PASSWORD:-Erp_Local_2026!}
     ports:
       - "8080:8080"
     volumes:
@@ -35,7 +39,8 @@ services:
     restart: always
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "1111"
+      # MSSQL 은 강한 SA 비밀번호를 요구한다(8자+ 복잡도). .env 의 MSSQL_SA_PASSWORD 사용.
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Erp_Local_2026!}
       MSSQL_PID: "Developer"
     ports:
       - "1433:1433"
