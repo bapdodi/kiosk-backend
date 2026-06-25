@@ -70,10 +70,9 @@ public class ErpSyncService {
         // Grouping items by name manually to process them properly
         java.util.Map<String, List<Map<String, Object>>> groupedItems = new java.util.HashMap<>();
         for (Map<String, Object> itemRow : erpItems) {
-            String name = (String) itemRow.get("ITEM");
-            if (name == null)
+            String name = normalizeName((String) itemRow.get("ITEM"));
+            if (name == null || name.isEmpty())
                 continue;
-            name = name.trim();
             groupedItems.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(itemRow);
         }
 
@@ -102,7 +101,9 @@ public class ErpSyncService {
              * ensureCategoryExists(part, mid, small, name);
              */
 
-            Product product = productRepository.findByName(name).stream().findFirst().orElse(null);
+            // 매칭 우선순위: ① 그룹 내 ERP 코드(상품/하위옵션) → ② 정규화된 이름.
+            // 대시보드에서 이름을 수동 변경했거나 ERP 이름에 공백 차이가 있어도 ERP 코드로 재연결한다.
+            Product product = findExistingProduct(rows, name);
 
             if (product == null) {
                 product = Product.builder()
@@ -150,6 +151,10 @@ public class ErpSyncService {
                 product.setErpCode(single.getErpCode());
                 product.setStock(single.getStock());
                 product.setIsComplexOptions(false);
+                // 단일 규격(GYU)을 product 에 보존 → 단순상품도 규격이 표시되도록 한다.
+                // 기존에는 여기서 규격이 통째로 버려져 규격이 비어 보였다.
+                String singleGyu = (String) rows.get(0).get("GYU");
+                product.setGyu((singleGyu != null && !singleGyu.trim().isEmpty()) ? singleGyu.trim() : null);
                 if (product.getCombinations() != null) {
                     product.getCombinations().clear();
                 } else {
@@ -159,6 +164,8 @@ public class ErpSyncService {
                 product.setErpCode(null);
                 product.setStock(combinations.stream().mapToInt(Combination::getStock).sum());
                 product.setIsComplexOptions(true);
+                // 복합옵션 상품의 규격은 각 combination.name 에 담기므로 단일 규격 필드는 비운다.
+                product.setGyu(null);
                 if (product.getCombinations() == null) {
                     product.setCombinations(new java.util.ArrayList<>());
                 }
@@ -360,6 +367,36 @@ public class ErpSyncService {
                 log.error("Failed to sync item {} to ERP: {}", item.getName(), e.getMessage());
             }
         }
+    }
+
+    /**
+     * 상품명 정규화: 앞뒤 공백 제거 + 내부 연속 공백을 하나로 축약.
+     * ERP 의 "피비볼밸브  (M) 레바"(이중공백) 같은 표기 차이로 같은 상품이 중복 그룹되는 것을 막는다.
+     */
+    private static String normalizeName(String raw) {
+        if (raw == null)
+            return null;
+        return raw.trim().replaceAll("\\s+", " ");
+    }
+
+    /**
+     * 기존 상품 찾기: ① 그룹 내 ERP 코드(상품 erpCode 또는 하위 combination 의 erpCode)로 먼저 찾고,
+     * ② 없으면 정규화된 이름으로 찾는다. ERP 코드 우선 매칭이라 대시보드에서 이름을 수동 변경한
+     * 상품도 끊기지 않고 재연결된다. 매칭된 상품의 이름은 수동 변경을 존중해 덮어쓰지 않는다.
+     */
+    private Product findExistingProduct(List<Map<String, Object>> rows, String normalizedName) {
+        for (Map<String, Object> row : rows) {
+            String code = String.valueOf(row.get("CODE"));
+            if (code == null || code.isEmpty())
+                continue;
+            Product byErp = productRepository.findByErpCode(code).orElse(null);
+            if (byErp != null)
+                return byErp;
+            Product byCombo = productRepository.findByCombinationErpCode(code).stream().findFirst().orElse(null);
+            if (byCombo != null)
+                return byCombo;
+        }
+        return productRepository.findByName(normalizedName).stream().findFirst().orElse(null);
     }
 
     private Integer toInteger(Object obj) {

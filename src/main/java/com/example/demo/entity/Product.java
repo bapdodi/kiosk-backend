@@ -49,6 +49,13 @@ public class Product {
     @Column(nullable = false)
     private Integer price;
 
+    /**
+     * ERP 규격(GYU). 단일 규격(단순상품)의 규격을 보존하기 위한 필드.
+     * 복합옵션 상품은 규격이 각 combination.name 에 담기므로 보통 null 이다.
+     */
+    @Column
+    private String gyu;
+
     @Column(nullable = false, columnDefinition = "INT DEFAULT 0")
     @Builder.Default
     private Integer stock = 0;

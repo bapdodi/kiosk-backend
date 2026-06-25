@@ -50,11 +50,11 @@ public class CategoryService {
 
     @Transactional
     public void updateCategoryOrders(List<Category> categories) {
-        Map<String, String> orderMap = categories.stream()
+        Map<String, Integer> orderMap = categories.stream()
                 .collect(java.util.stream.Collectors.toMap(Category::getId, Category::getSortOrder));
         List<Category> existing = categoryRepository.findAllById(orderMap.keySet());
         existing.forEach(c -> {
-            String newOrder = orderMap.get(c.getId());
+            Integer newOrder = orderMap.get(c.getId());
             if (newOrder != null) c.setSortOrder(newOrder);
         });
         categoryRepository.saveAll(existing);
