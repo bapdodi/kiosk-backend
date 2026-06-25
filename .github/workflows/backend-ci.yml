@@ -35,18 +35,7 @@ jobs:
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/kiosk-backend:latest
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-    - name: Deploy to EC2 via SSH
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          cd ~/deploy
-          echo "DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}" > .env
-          sudo docker compose pull backend
-          sudo docker compose up -d backend
+  # 배포(deploy)는 운영서버의 watchtower 가 담당한다.
+  # watchtower 가 Docker Hub 의 새 :latest 이미지를 감지해 컨테이너를 교체하므로
+  # 여기서 docker compose 로 배포하지 않는다. (과거 deploy 잡은 .env 를 덮어써
+  # 운영 비밀값을 날릴 위험이 있어 제거함)
