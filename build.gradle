@@ -36,3 +36,35 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+// `./gradlew bootRun` 실행 시 backend/.env 를 읽어 환경변수로 주입한다.
+// (application.yml 의 ${SERVER_PORT}, ${SPRING_DATASOURCE_URL} 등이 이 값으로 치환됨)
+// 이미 셸에서 export 한 변수가 있으면 그 값을 우선해 .env 가 덮어쓰지 않는다.
+def loadDotEnv = { File f ->
+	def env = [:]
+	if (f.exists()) {
+		f.eachLine { rawLine ->
+			def line = rawLine.trim()
+			if (line.isEmpty() || line.startsWith('#')) return
+			def idx = line.indexOf('=')
+			if (idx <= 0) return
+			def key = line.substring(0, idx).trim()
+			def value = line.substring(idx + 1).trim()
+			if (value.length() >= 2 &&
+				((value.startsWith('"') && value.endsWith('"')) ||
+				 (value.startsWith("'") && value.endsWith("'")))) {
+				value = value.substring(1, value.length() - 1)
+			}
+			env[key] = value
+		}
+	}
+	return env
+}
+
+tasks.named('bootRun') {
+	loadDotEnv(file('.env')).each { k, v ->
+		if (System.getenv(k) == null) {
+			environment(k, v)
+		}
+	}
+}

@@ -39,4 +39,12 @@ public class Combination {
     private String erpCode;
     private Integer stock;
     private Integer sortOrder;
+
+    /**
+     * 소프트삭제 플래그. true 면 화면(키오스크/관리자)에서 숨기되 postgres 에는 그대로 보존한다.
+     * 실제 row 를 지우지 않으므로 관리자 폼에서 복구할 수 있고, ERP 재동기화로도 되살아나지 않는다.
+     */
+    @jakarta.persistence.Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean deleted = false;
 }
