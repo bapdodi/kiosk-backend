@@ -84,6 +84,7 @@ public class ProductService {
                     product.setGyu(productDetails.getGyu());
                     product.setHashtags(productDetails.getHashtags());
                     product.setImages(productDetails.getImages());
+                    product.setOptionImages(productDetails.getOptionImages());
                     product.setIsComplexOptions(productDetails.getIsComplexOptions());
                     product.setSortOrder(productDetails.getSortOrder());
 

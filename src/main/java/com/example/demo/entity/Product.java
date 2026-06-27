@@ -81,6 +81,16 @@ public class Product {
     @Builder.Default
     private List<String> images = new ArrayList<>();
 
+    /**
+     * 옵션값 단위로 연결되는 사진들. 모달에서 선택된 옵션값에 맞는 사진을 보여주고,
+     * 해당 값에 사진이 없으면 메인 images 로 폴백한다.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "product_option_images", joinColumns = @JoinColumn(name = "product_id"))
+    @org.hibernate.annotations.BatchSize(size = 500)
+    @Builder.Default
+    private List<OptionImage> optionImages = new ArrayList<>();
+
     @Column(columnDefinition = "boolean default false")
     @Builder.Default
     private Boolean isCategoryModified = false;
