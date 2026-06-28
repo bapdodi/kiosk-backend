@@ -280,6 +280,14 @@ public class ErpSyncService {
         String yy = order.getTimestamp().format(java.time.format.DateTimeFormatter.ofPattern("yy"));
         String ilTable = "IL" + yy;
 
+        // 한 주문의 모든 품목은 동일한 전표번호(dNO)로 묶고, 품목별로 EDITNO(라인번호)만 증가시킨다.
+        // 기존에는 품목마다 MAX(dNO)+1 을 루프 안에서 새로 계산해, 각 품목이 별도 전표(=별도 구매자 줄)로
+        // 분리되어 "구매자1: 물건1 / 구매자1: 물건2" 처럼 보였다.
+        Integer maxDnoForOrder = erpJdbcTemplate.queryForObject(
+                "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WHERE dDATE = ?", Integer.class, sujuDateStr);
+        int orderDno = (maxDnoForOrder != null ? maxDnoForOrder : 0) + 1;
+        int editNo = 0;
+
         for (com.example.demo.entity.OrderItem item : order.getItems()) {
             try {
                 // If erpCode is missing, we can't sync it properly
@@ -340,14 +348,12 @@ public class ErpSyncService {
                 String insertIl = "INSERT INTO " + ilTable
                         + " (dNO, EDITNO, dDATE, ITEMCODE, CUST, KIND, PRICE, EA, GUM, VAT, SA, DAECHE, EA2, BIGO, BIGO2, BIGO3, ORDERCODE, POINT, JIJOM) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-                // Fetch max dNO to auto-increment it manually since it might not be identity
-                Integer maxDno = erpJdbcTemplate.queryForObject(
-                        "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WHERE dDATE = ?", Integer.class, sujuDateStr);
-                int nextDno = (maxDno != null ? maxDno : 0) + 1;
+                // 같은 주문이면 dNO 는 고정(orderDno)이고 EDITNO 만 라인별로 증가시켜 한 전표로 묶는다.
+                editNo++;
 
                 erpJdbcTemplate.update(insertIl,
-                        nextDno, // dNO
-                        nextDno, // EDITNO
+                        orderDno, // dNO (전표번호: 주문 단위로 동일)
+                        editNo, // EDITNO (라인번호: 품목 순서)
                         sujuDateStr, // dDATE (yy.MM.dd)
                         item.getErpCode(),
                         custCode, // CUST
