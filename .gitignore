@@ -40,3 +40,6 @@ out/
 # Local environment overrides (never commit secrets)
 .env
 .env.local
+
+# 백업 설정(비밀 포함 가능)
+ops/backup/backup.env
