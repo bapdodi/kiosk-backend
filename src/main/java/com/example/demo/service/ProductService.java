@@ -114,41 +114,81 @@ public class ProductService {
     }
 
     private boolean renameProductImages(Product product) {
-        if (product.getImages() == null || product.getImages().isEmpty())
-            return false;
-
-        java.util.List<String> newUrls = new java.util.ArrayList<>();
         boolean changed = false;
+        // 같은 원본 파일을 대표/옵션이 공유할 때 동일한 새 URL 로 매핑하기 위한 캐시.
+        java.util.Map<String, String> renamedUrls = new java.util.HashMap<>();
 
-        for (int i = 0; i < product.getImages().size(); i++) {
-            String url = product.getImages().get(i);
-            if (url != null && url.contains("/uploads/")) {
+        // 1) 대표 이미지: {productId}-{n}.ext 로 정규화
+        if (product.getImages() != null && !product.getImages().isEmpty()) {
+            java.util.List<String> newUrls = new java.util.ArrayList<>();
+            for (int i = 0; i < product.getImages().size(); i++) {
+                String url = product.getImages().get(i);
+                if (url != null && url.contains("/uploads/")) {
+                    try {
+                        String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
+                        String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
+
+                        String extension = oldFileName.contains(".")
+                                ? oldFileName.substring(oldFileName.lastIndexOf("."))
+                                : "";
+                        String expectedName = product.getId() + "-" + (i + 1) + extension;
+
+                        if (oldFileName.equals(expectedName)) {
+                            newUrls.add(url);
+                            continue;
+                        }
+
+                        fileService.renameFile(oldFileName, expectedName);
+                        String newUrl = fileService.getFileUrl(expectedName);
+                        renamedUrls.put(url, newUrl);
+                        newUrls.add(newUrl);
+                        changed = true;
+                    } catch (Exception e) {
+                        newUrls.add(url);
+                    }
+                } else {
+                    newUrls.add(url);
+                }
+            }
+            product.setImages(newUrls);
+        }
+
+        // 2) 옵션 이미지: 한글 등 비-ASCII 파일명만 ASCII 로 정규화한다.
+        //    운영 서버가 한글 파일명을 서빙할 때 500 이 나므로 안전한 이름으로 바꾼다.
+        //    이미 ASCII 인 경우(대표 이미지 공유 등)는 건드리지 않아 공유가 깨지지 않게 한다.
+        if (product.getOptionImages() != null && !product.getOptionImages().isEmpty()) {
+            for (com.example.demo.entity.OptionImage oi : product.getOptionImages()) {
+                String url = oi.getImageUrl();
+                if (url == null || !url.contains("/uploads/"))
+                    continue;
+                // 이번 저장에서 이미 옮긴 동일 원본 파일이면 같은 새 URL 로 맞춘다.
+                if (renamedUrls.containsKey(url)) {
+                    oi.setImageUrl(renamedUrls.get(url));
+                    changed = true;
+                    continue;
+                }
                 try {
                     String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
                     String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
 
-                    String extension = oldFileName.contains(".") ? oldFileName.substring(oldFileName.lastIndexOf("."))
-                            : "";
-                    String expectedName = product.getId() + "-" + (i + 1) + extension;
-
-                    if (oldFileName.equals(expectedName)) {
-                        newUrls.add(url);
+                    // ASCII 외 문자(한글 등)나 공백을 제거해 안전한 이름을 만든다. UUID 접두사는 보존되어 유일성 유지.
+                    String safeName = oldFileName.replaceAll("[^A-Za-z0-9._-]", "");
+                    if (safeName.isEmpty() || safeName.equals(oldFileName)) {
+                        // 이미 안전한 이름이면 그대로 둔다.
                         continue;
                     }
 
-                    fileService.renameFile(oldFileName, expectedName);
-                    newUrls.add(fileService.getFileUrl(expectedName));
+                    fileService.renameFile(oldFileName, safeName);
+                    String newUrl = fileService.getFileUrl(safeName);
+                    renamedUrls.put(url, newUrl);
+                    oi.setImageUrl(newUrl);
                     changed = true;
                 } catch (Exception e) {
-                    newUrls.add(url);
+                    // 실패 시 기존 URL 유지
                 }
-            } else {
-                newUrls.add(url);
             }
         }
-        if (changed) {
-            product.setImages(newUrls);
-        }
+
         return changed;
     }
 
