@@ -46,4 +46,14 @@ public class FileService {
         }
         return oldFileName;
     }
+
+    /** 업로드 디렉토리에서 파일 바이트를 읽는다. (네이버 이미지 재업로드용) */
+    public byte[] loadFileBytes(String fileName) throws IOException {
+        Path filePath = Paths.get(UPLOAD_DIR).resolve(fileName);
+        return Files.readAllBytes(filePath);
+    }
+
+    public boolean fileExists(String fileName) {
+        return Files.exists(Paths.get(UPLOAD_DIR).resolve(fileName));
+    }
 }

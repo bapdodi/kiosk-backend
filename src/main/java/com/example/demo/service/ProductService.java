@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.example.demo.entity.Product;
 import com.example.demo.repository.ProductRepository;
+import com.example.demo.service.channel.ChannelSyncService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -22,6 +23,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final FileService fileService;
+    private final ChannelSyncService channelSyncService;
 
     public List<Product> getAllProducts() {
         return productRepository.findAllByOrderBySortOrderAscIdAsc();
@@ -194,6 +196,10 @@ public class ProductService {
 
     @Transactional
     public void deleteProducts(List<Long> ids) {
+        // 채널에 등록된 상품은 삭제 대신 판매중지로 전환(모든 채널, best-effort, 실패해도 키오스크 삭제는 진행)
+        for (Long id : ids) {
+            channelSyncService.suspendEverywhere(id);
+        }
         List<Product> productsToDelete = productRepository.findAllById(ids);
         productRepository.deleteAll(productsToDelete);
     }
@@ -221,6 +227,8 @@ public class ProductService {
     public boolean deleteProduct(Long id) {
         return productRepository.findById(id)
                 .map(product -> {
+                    // 채널 등록 상품은 삭제 대신 판매중지(best-effort)
+                    channelSyncService.suspendEverywhere(id);
                     productRepository.delete(product);
                     return true;
                 })

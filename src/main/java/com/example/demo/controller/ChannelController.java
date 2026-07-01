@@ -1,0 +1,113 @@
+package com.example.demo.controller;
+
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.demo.entity.ChannelCategoryMapping;
+import com.example.demo.entity.ChannelProductLink;
+import com.example.demo.repository.ChannelCategoryMappingRepository;
+import com.example.demo.service.channel.ChannelSyncService;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * 판매채널(네이버/쿠팡 등) 연동 관리자 API. 채널은 경로변수 {channel} 로 받는다(naver, coupang…).
+ *
+ * 경로가 "/api/channels/{channel}/admin/..." 이므로 SecurityConfig 의 채널 관리자 규칙으로 보호된다.
+ */
+@RestController
+@RequestMapping("/api/channels/{channel}/admin")
+@RequiredArgsConstructor
+@Slf4j
+public class ChannelController {
+
+    private final ChannelSyncService syncService;
+    private final ChannelCategoryMappingRepository categoryMappingRepository;
+
+    // ── 상태 ──────────────────────────────────────────────────────────────────
+
+    @GetMapping("/config-status")
+    public Map<String, Object> configStatus(@PathVariable("channel") String channel) {
+        try {
+            return Map.of("configured", syncService.isConfigured(channel));
+        } catch (RuntimeException e) {
+            return Map.of("configured", false, "error", String.valueOf(e.getMessage()));
+        }
+    }
+
+    // ── 카테고리 매핑 CRUD ──────────────────────────────────────────────────────
+
+    @GetMapping("/category-mappings")
+    public List<ChannelCategoryMapping> listCategoryMappings(@PathVariable("channel") String channel) {
+        return categoryMappingRepository.findByChannel(channel.toUpperCase());
+    }
+
+    @PostMapping("/category-mappings")
+    public ChannelCategoryMapping saveCategoryMapping(@PathVariable("channel") String channel,
+            @RequestBody ChannelCategoryMapping mapping) {
+        mapping.setChannel(channel.toUpperCase());
+        return categoryMappingRepository.save(mapping);
+    }
+
+    @DeleteMapping("/category-mappings/{id}")
+    public ResponseEntity<Void> deleteCategoryMapping(@PathVariable("id") Long id) {
+        categoryMappingRepository.deleteById(id);
+        return ResponseEntity.ok().build();
+    }
+
+    // ── 상품 연동 상태(배지용) ──────────────────────────────────────────────────
+
+    @GetMapping("/products/status")
+    public List<ChannelProductLink> productStatus(@PathVariable("channel") String channel,
+            @RequestParam("ids") List<Long> ids) {
+        return syncService.getLinks(channel, ids);
+    }
+
+    // ── 전송(등록/수정) ────────────────────────────────────────────────────────
+
+    @PostMapping("/products/{id}/push")
+    public ResponseEntity<?> push(@PathVariable("channel") String channel, @PathVariable("id") Long id) {
+        try {
+            return ResponseEntity.ok(syncService.push(channel, id));
+        } catch (RuntimeException e) {
+            log.warn("[{}] 전송 실패 productId={}: {}", channel, id, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", String.valueOf(e.getMessage())));
+        }
+    }
+
+    @PostMapping("/products/push-bulk")
+    public List<ChannelSyncService.PushResult> pushBulk(@PathVariable("channel") String channel,
+            @RequestBody List<Long> ids) {
+        return syncService.pushBulk(channel, ids);
+    }
+
+    @PostMapping("/products/{id}/suspend")
+    public ResponseEntity<?> suspend(@PathVariable("channel") String channel, @PathVariable("id") Long id) {
+        syncService.suspend(channel, id);
+        return ResponseEntity.ok(Map.of("result", "판매중지 요청 완료"));
+    }
+
+    // ── 동기화(미리보기 → 수락 반영) ────────────────────────────────────────────
+
+    @GetMapping("/sync/preview")
+    public List<ChannelSyncService.ChangePreview> syncPreview(@PathVariable("channel") String channel) {
+        return syncService.previewChanges(channel);
+    }
+
+    @PostMapping("/sync/apply")
+    public List<ChannelSyncService.PushResult> syncApply(@PathVariable("channel") String channel,
+            @RequestBody List<Long> ids) {
+        return syncService.applyChanges(channel, ids);
+    }
+}

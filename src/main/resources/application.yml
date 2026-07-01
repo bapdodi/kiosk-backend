@@ -31,3 +31,18 @@ erp:
     url: ${ERP_DATASOURCE_URL:${ERP_DB_URL:jdbc:sqlserver://localhost:1433;databaseName=DR_ERP;trustServerCertificate=true}}
     username: ${ERP_DATASOURCE_USERNAME:${ERP_DB_USERNAME:sa}}
     password: ${ERP_DATASOURCE_PASSWORD:${ERP_DB_PASSWORD:Erp_Local_2026!}}
+
+# 네이버 커머스API(스마트스토어) 연동. 값은 backend/.env 로 주입한다. (미설정 시 연동 기능만 비활성)
+naver:
+  commerce:
+    client-id: ${NAVER_COMMERCE_CLIENT_ID:}
+    client-secret: ${NAVER_COMMERCE_CLIENT_SECRET:}
+    base-url: ${NAVER_COMMERCE_BASE_URL:https://api.commerce.naver.com/external}
+    shipping-address-id: ${NAVER_SHIPPING_ADDRESS_ID:}
+    return-address-id: ${NAVER_RETURN_ADDRESS_ID:}
+    as-telephone: ${NAVER_AS_TELEPHONE:}
+    as-guide-content: ${NAVER_AS_GUIDE_CONTENT:구매하신 매장으로 문의 바랍니다.}
+    origin-area-code: ${NAVER_ORIGIN_AREA_CODE:}
+    delivery-base-fee: ${NAVER_DELIVERY_BASE_FEE:3000}
+    return-delivery-fee: ${NAVER_RETURN_DELIVERY_FEE:3000}
+    exchange-delivery-fee: ${NAVER_EXCHANGE_DELIVERY_FEE:6000}
