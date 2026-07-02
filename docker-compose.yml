@@ -29,9 +29,17 @@ services:
       ERP_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;databaseName=DR_ERP;trustServerCertificate=true
       ERP_DATASOURCE_USERNAME: sa
       ERP_DATASOURCE_PASSWORD: ${ERP_DATASOURCE_PASSWORD:-Erp_Local_2026!}
+      # 업로드 이미지 저장소(MinIO). 시크릿은 .env 에서 주입(커밋 금지).
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://192.168.0.90:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-admin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-kiosk}
+      # 1회성 마이그레이션: /app/uploads 지정 후 1회 배포, 완료되면 비우고 재배포.
+      MINIO_MIGRATE_LOCAL_DIR: ${MINIO_MIGRATE_LOCAL_DIR:-}
     ports:
       - "8080:8080"
     volumes:
+      # 기존 이미지 마이그레이션 원본. 마이그레이션 완료 후에는 제거해도 됨.
       - kiosk_uploads:/app/uploads
 
   mssql:

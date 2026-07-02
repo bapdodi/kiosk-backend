@@ -18,6 +18,19 @@ server:
   # 기본값 8080. 로컬에서 8080 이 점유된 경우 .env 의 SERVER_PORT 로 override (예: 8093).
   port: ${SERVER_PORT:8080}
 
+# 업로드 이미지 저장소(MinIO / S3 호환). 값은 backend/.env 또는 docker-compose 로 주입한다.
+# 객체 키 = 파일명, 서빙 URL 은 기존과 동일하게 /uploads/<파일명> 을 백엔드가 MinIO 에서 프록시한다.
+storage:
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://192.168.0.90:9000}
+    access-key: ${MINIO_ACCESS_KEY:admin}
+    # 시크릿은 git 에 커밋하지 않는다. .env(gitignore) 또는 배포 환경변수로만 주입.
+    secret-key: ${MINIO_SECRET_KEY:}
+    bucket: ${MINIO_BUCKET:kiosk}
+    # 1회성 마이그레이션: 지정 시 부팅 때 이 로컬 디렉터리의 파일을 MinIO 로 업로드한다(누락분만).
+    # 운영 컨테이너에서는 /app/uploads 로 지정. 마이그레이션 완료 후 값을 비워 재배포.
+    migrate-local-dir: ${MINIO_MIGRATE_LOCAL_DIR:}
+
 logging:
   level:
     root: INFO
