@@ -84,6 +84,7 @@ public class ProductService {
                     product.getCategories().addAll(newCategories);
                     product.setPrice(productDetails.getPrice());
                     product.setGyu(productDetails.getGyu());
+                    product.setOriginAreaCode(productDetails.getOriginAreaCode());
                     product.setHashtags(productDetails.getHashtags());
                     product.setImages(productDetails.getImages());
                     product.setOptionImages(productDetails.getOptionImages());

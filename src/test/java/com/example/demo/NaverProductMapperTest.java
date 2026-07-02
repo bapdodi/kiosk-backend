@@ -88,6 +88,56 @@ class NaverProductMapperTest {
     }
 
     @Test
+    void 검색태그와_SEO정보가_payload에_포함된다() {
+        Product p = Product.builder()
+                .id(4L)
+                .name("스테인리스 엘보")
+                .description("부식에 강한   스테인리스\n엘보 이음쇠")
+                .price(3000)
+                .stock(5)
+                .hashtags(List.of("#배관", "엘보", "배관", "스테인리스"))
+                .build();
+
+        ObjectNode detail = (ObjectNode) mapper()
+                .toProductPayload(p, 1L, List.of("https://cdn.naver/e.jpg"), "SALE")
+                .get("originProduct").get("detailAttribute");
+
+        ObjectNode seo = (ObjectNode) detail.get("seoInfo");
+        assertNotNull(seo);
+        assertEquals("스테인리스 엘보", seo.get("pageTitle").asText());
+        // 공백 정규화 + '#' 제거 + 중복(배관) 제거
+        assertFalse(seo.get("metaDescription").asText().contains("  "));
+        assertEquals("배관", seo.get("sellerTags").get(0).get("text").asText());
+        assertEquals(3, seo.get("sellerTags").size());
+    }
+
+    @Test
+    void 상품정보제공고시_ETC가_필수필드와_함께_구성된다() {
+        Product p = Product.builder().id(5L).name("PVC 티").price(1000).stock(1).build();
+        ObjectNode notice = (ObjectNode) mapper()
+                .toProductPayload(p, 1L, List.of("https://cdn.naver/t.jpg"), "SALE")
+                .get("originProduct").get("detailAttribute").get("productInfoProvidedNotice");
+
+        assertNotNull(notice);
+        assertEquals("ETC", notice.get("productInfoProvidedNoticeType").asText());
+        ObjectNode etc = (ObjectNode) notice.get("etc");
+        assertEquals("PVC 티", etc.get("itemName").asText());
+        assertEquals("PVC 티", etc.get("modelName").asText());
+        assertEquals("상품상세참조", etc.get("returnCostReason").asText());
+        assertEquals("010-0000-0000", etc.get("customerServicePhoneNumber").asText());
+    }
+
+    @Test
+    void 상품별_원산지코드가_있으면_우선사용된다() {
+        Product p = Product.builder().id(6L).name("수입 밸브").price(1000).stock(1)
+                .originAreaCode("0200037").build();
+        ObjectNode detail = (ObjectNode) mapper()
+                .toProductPayload(p, 1L, List.of("https://cdn.naver/v.jpg"), "SALE")
+                .get("originProduct").get("detailAttribute");
+        assertEquals("0200037", detail.get("originAreaInfo").get("originAreaCode").asText());
+    }
+
+    @Test
     void 판매중지_상태면_채널노출도_SUSPENSION() {
         Product p = Product.builder().id(3L).name("t").price(1000).stock(1).build();
         ObjectNode payload = mapper().toProductPayload(p, 1L, List.of("https://cdn.naver/a.jpg"), "SUSPENSION");

@@ -4,11 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
@@ -37,8 +39,12 @@ public class NaverCommerceClient {
     private static final String PATH_PRODUCTS = "/v2/products";
     private static final String PATH_ORIGIN_PRODUCT = "/v2/products/origin-products/"; // + {originProductNo}
     private static final String PATH_IMAGE_UPLOAD = "/v1/product-images/upload";
-    private static final String PATH_ADDRESS_BOOKS = "/v1/seller/addressbooks";
+    private static final String PATH_ADDRESS_BOOKS = "/v1/seller/addressbooks-for-page";
     private static final String PATH_CATEGORIES = "/v1/categories";
+    private static final String PATH_PRODUCT_SEARCH = "/v1/products/search";
+    private static final String PATH_CHANNEL_PRODUCT = "/v2/products/channel-products/"; // + {channelProductNo}
+    private static final String PATH_ORIGIN_PRODUCT_V1_CHANGE_STATUS =
+            "/v1/products/origin-products/%d/change-status";
 
     private final NaverProperties props;
     private final NaverAuthService authService;
@@ -55,12 +61,22 @@ public class NaverCommerceClient {
 
     /** 등록된 출고지/반품지 주소록 조회. 관리자가 shipping/return addressId 를 확인하는 용도. */
     public JsonNode getAddressBooks() {
-        return authorizedJson(HttpMethod.GET, PATH_ADDRESS_BOOKS, null);
+        return authorizedJson(HttpMethod.GET, PATH_ADDRESS_BOOKS + "?page=1", null);
     }
 
     /** 전체 카테고리 조회(리프 카테고리 매핑 UI 용). */
     public JsonNode getCategories() {
         return authorizedJson(HttpMethod.GET, PATH_CATEGORIES, null);
+    }
+
+    /** 판매자 채널상품 목록 조회(페이지). body 예: {"page":1,"size":50}. */
+    public JsonNode searchProducts(JsonNode body) {
+        return authorizedJson(HttpMethod.POST, PATH_PRODUCT_SEARCH, body);
+    }
+
+    /** 채널상품 단건 상세 조회(카테고리/상품정보제공고시 등 확인용). */
+    public JsonNode getChannelProduct(long channelProductNo) {
+        return authorizedJson(HttpMethod.GET, PATH_CHANNEL_PRODUCT + channelProductNo, null);
     }
 
     /** 상품 신규 등록. 성공 시 originProductNo/channelProductNo 등을 담은 응답을 반환. */
@@ -73,11 +89,17 @@ public class NaverCommerceClient {
         return authorizedJson(HttpMethod.PUT, PATH_ORIGIN_PRODUCT + originProductNo, payload);
     }
 
-    /** 상품 상태 변경(예: SUSPENSION = 판매중지). 삭제 대신 판매중지 처리에 사용. */
+    /** 상품 상태 변경(예: SUSPENSION = 판매중지). 삭제 대신 판매중지 처리에 사용. 경로는 v1. */
     public JsonNode changeProductStatus(long originProductNo, String statusType) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("statusType", statusType);
-        return authorizedJson(HttpMethod.PUT, PATH_ORIGIN_PRODUCT + originProductNo + "/change-status", body);
+        return authorizedJson(HttpMethod.PUT,
+                PATH_ORIGIN_PRODUCT_V1_CHANGE_STATUS.formatted(originProductNo), body);
+    }
+
+    /** 채널상품 삭제(비가역). 잘못 등록/테스트 상품 회수에 사용. */
+    public JsonNode deleteChannelProduct(long channelProductNo) {
+        return authorizedJson(HttpMethod.DELETE, PATH_CHANNEL_PRODUCT + channelProductNo, null);
     }
 
     /**
@@ -88,16 +110,20 @@ public class NaverCommerceClient {
         if (parts == null || parts.isEmpty()) {
             return new ArrayList<>();
         }
-        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        // 블로킹 RestClient 용 멀티파트 본문. MultipartBodyBuilder 는 reactive-streams(Publisher)
+        // 클래스를 요구하므로(런타임 미포함) 사용하지 않고 MultiValueMap<String, HttpEntity> 로 직접 구성한다.
+        MultiValueMap<String, HttpEntity<?>> multipartBody = new LinkedMultiValueMap<>();
         for (ImagePart part : parts) {
-            builder.part("imageFiles", new ByteArrayResource(part.bytes()) {
+            ByteArrayResource resource = new ByteArrayResource(part.bytes()) {
                 @Override
                 public String getFilename() {
                     return part.filename();
                 }
-            }).contentType(part.mediaType());
+            };
+            HttpHeaders partHeaders = new HttpHeaders();
+            partHeaders.setContentType(part.mediaType());
+            multipartBody.add("imageFiles", new HttpEntity<>(resource, partHeaders));
         }
-        Object multipartBody = builder.build();
 
         JsonNode resp;
         try {

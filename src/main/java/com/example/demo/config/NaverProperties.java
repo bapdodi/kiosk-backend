@@ -40,8 +40,18 @@ public class NaverProperties {
     /** A/S 안내 문구 */
     private String asGuideContent = "구매하신 매장으로 문의 바랍니다.";
 
-    /** 원산지 코드(네이버 원산지 코드 체계). 예: 국산 코드 */
+    /** 원산지 코드(네이버 원산지 코드 체계). 예: 국산="00" */
     private String originAreaCode;
+
+    /** 택배사 코드(네이버 배송사 코드). 예: 로젠택배="KGB". 택배 배송상품은 필수. */
+    private String deliveryCompany;
+
+    /**
+     * 신규 등록 후 곧바로 판매중지 처리할지 여부. 기본 true.
+     * 네이버는 생성 시 판매중지를 무시하고 판매중(SALE)으로 올리므로,
+     * true 면 등록 직후 change-status 로 SUSPENSION 처리해 초안 상태로 둔다.
+     */
+    private boolean registerAsSuspended = true;
 
     /** 기본 배송비(원) */
     private Integer deliveryBaseFee = 3000;

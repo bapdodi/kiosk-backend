@@ -56,6 +56,8 @@ naver:
     as-telephone: ${NAVER_AS_TELEPHONE:}
     as-guide-content: ${NAVER_AS_GUIDE_CONTENT:구매하신 매장으로 문의 바랍니다.}
     origin-area-code: ${NAVER_ORIGIN_AREA_CODE:}
+    delivery-company: ${NAVER_DELIVERY_COMPANY:}
+    register-as-suspended: ${NAVER_REGISTER_AS_SUSPENDED:true}
     delivery-base-fee: ${NAVER_DELIVERY_BASE_FEE:3000}
     return-delivery-fee: ${NAVER_RETURN_DELIVERY_FEE:3000}
     exchange-delivery-fee: ${NAVER_EXCHANGE_DELIVERY_FEE:6000}

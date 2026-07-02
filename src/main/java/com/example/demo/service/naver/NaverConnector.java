@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 네이버 스마트스토어 채널 커넥터. {@link SalesChannelConnector} 구현체.
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class NaverConnector implements SalesChannelConnector {
 
     public static final String CHANNEL = "NAVER";
@@ -63,7 +65,21 @@ public class NaverConnector implements SalesChannelConnector {
         if (originProductNo == null) {
             throw new ChannelApiException("네이버 등록 응답에서 originProductNo 를 찾지 못했습니다: " + resp);
         }
-        return new ConnectorResult(originProductNo, extractLong(resp, "channelProductNo"), STATUS_SALE, imageUrls);
+
+        // 네이버는 생성 시 판매중지를 무시하고 SALE 로 올리므로, staging 옵션이 켜져 있으면
+        // 등록 직후 change-status 로 판매중지 처리해 초안 상태로 둔다.
+        String status = STATUS_SALE;
+        if (props.isRegisterAsSuspended()) {
+            try {
+                client.changeProductStatus(originProductNo, STATUS_SUSPENSION);
+                status = STATUS_SUSPENSION;
+            } catch (RuntimeException e) {
+                // 등록 자체는 성공했으므로 링크는 보존하고, 판매중지 실패만 경고로 남긴다(수동 처리 가능).
+                log.warn("네이버 등록 직후 판매중지 실패(originProductNo={}). 판매중 상태로 남습니다: {}",
+                        originProductNo, e.getMessage());
+            }
+        }
+        return new ConnectorResult(originProductNo, extractLong(resp, "channelProductNo"), status, imageUrls);
     }
 
     @Override

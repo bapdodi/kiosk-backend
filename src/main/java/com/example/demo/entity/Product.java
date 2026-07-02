@@ -65,6 +65,13 @@ public class Product {
     @Column
     private String gyu;
 
+    /**
+     * 원산지 코드(네이버 원산지 코드 체계). 상품마다 다르므로 상품 단위로 보관한다.
+     * 비어 있으면 매핑 시 .env 의 NAVER_ORIGIN_AREA_CODE 기본값으로 폴백한다.
+     */
+    @Column
+    private String originAreaCode;
+
     @Column(nullable = false, columnDefinition = "INT DEFAULT 0")
     @Builder.Default
     private Integer stock = 0;

@@ -30,7 +30,9 @@ import lombok.RequiredArgsConstructor;
 public class NaverProductMapper {
 
     private static final int MAX_OPTIONAL_IMAGES = 9;
+    private static final int MAX_SELLER_TAGS = 10;
     private static final String COMBINATION_SEPARATOR = " / ";
+    private static final String NOTICE_REFERENCE = "상품상세참조";
 
     private final NaverProperties props;
     private final ObjectMapper objectMapper;
@@ -67,11 +69,21 @@ public class NaverProductMapper {
         ObjectNode afterService = detailAttribute.putObject("afterServiceInfo");
         afterService.put("afterServiceTelephoneNumber", nullToEmpty(props.getAsTelephone()));
         afterService.put("afterServiceGuideContent", nullToEmpty(props.getAsGuideContent()));
-        if (props.getOriginAreaCode() != null && !props.getOriginAreaCode().isBlank()) {
-            detailAttribute.putObject("originAreaInfo").put("originAreaCode", props.getOriginAreaCode());
+        // 원산지: 상품별 값 우선, 없으면 .env 의 기본 원산지 코드로 폴백
+        String originAreaCode = (product.getOriginAreaCode() != null && !product.getOriginAreaCode().isBlank())
+                ? product.getOriginAreaCode()
+                : props.getOriginAreaCode();
+        if (originAreaCode != null && !originAreaCode.isBlank()) {
+            detailAttribute.putObject("originAreaInfo").put("originAreaCode", originAreaCode);
         }
         detailAttribute.put("minorPurchasable", true);
         addOptionInfo(detailAttribute, product);
+
+        // SEO(제목/설명/검색태그) — 검색 노출 최적화
+        detailAttribute.set("seoInfo", buildSeoInfo(product));
+
+        // 상품정보제공고시(네이버 필수). 품목군은 기타 재화(ETC) 기본값으로 구성.
+        detailAttribute.set("productInfoProvidedNotice", buildProductInfoProvidedNotice(product));
 
         // 배송 정보
         origin.set("deliveryInfo", buildDeliveryInfo());
@@ -266,13 +278,96 @@ public class NaverProductMapper {
         return sb.toString();
     }
 
+    /**
+     * SEO 정보(detailAttribute.seoInfo): 검색결과 제목/설명 + 검색태그(sellerTags).
+     * sellerTags 는 상품의 hashtags 를 최대 10개까지 {text} 형태로 전달한다(code 생략).
+     */
+    private ObjectNode buildSeoInfo(Product product) {
+        ObjectNode seo = objectMapper.createObjectNode();
+        String name = product.getName() != null ? product.getName() : "";
+        seo.put("pageTitle", truncate(name, 100));
+
+        String desc = product.getDescription();
+        if (desc == null || desc.isBlank()) {
+            desc = name;
+        }
+        seo.put("metaDescription", truncate(desc.replaceAll("\\s+", " ").trim(), 160));
+
+        if (product.getHashtags() != null && !product.getHashtags().isEmpty()) {
+            ArrayNode tags = objectMapper.createArrayNode();
+            java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+            for (String raw : product.getHashtags()) {
+                if (raw == null) {
+                    continue;
+                }
+                String t = raw.trim();
+                if (t.startsWith("#")) {
+                    t = t.substring(1).trim();
+                }
+                if (t.isEmpty() || !seen.add(t)) {
+                    continue;
+                }
+                tags.addObject().put("text", t);
+                if (tags.size() >= MAX_SELLER_TAGS) {
+                    break;
+                }
+            }
+            if (!tags.isEmpty()) {
+                seo.set("sellerTags", tags);
+            }
+        }
+        return seo;
+    }
+
+    /**
+     * 상품정보제공고시(detailAttribute.productInfoProvidedNotice) — 네이버 필수.
+     * 품목군을 특정하기 어려운 키오스크 상품 특성상 기타 재화(ETC)로 구성하고,
+     * 텍스트 항목은 위탁판매 관행대로 "상품상세참조"로 채운다. 품명/모델명은 상품명,
+     * 소비자상담 전화는 .env 의 A/S 전화번호를 사용한다.
+     */
+    private ObjectNode buildProductInfoProvidedNotice(Product product) {
+        ObjectNode notice = objectMapper.createObjectNode();
+        notice.put("productInfoProvidedNoticeType", "ETC");
+        ObjectNode etc = notice.putObject("etc");
+        etc.put("returnCostReason", NOTICE_REFERENCE);
+        etc.put("noRefundReason", NOTICE_REFERENCE);
+        etc.put("qualityAssuranceStandard", NOTICE_REFERENCE);
+        etc.put("compensationProcedure", NOTICE_REFERENCE);
+        etc.put("troubleShootingContents", NOTICE_REFERENCE);
+        String name = (product.getName() != null && !product.getName().isBlank())
+                ? product.getName()
+                : NOTICE_REFERENCE;
+        etc.put("itemName", name);
+        etc.put("modelName", name);
+        etc.put("certificateDetails", NOTICE_REFERENCE);
+        etc.put("manufacturer", NOTICE_REFERENCE);
+        etc.put("customerServicePhoneNumber", nullToEmpty(props.getAsTelephone()));
+        return notice;
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() <= max ? s : s.substring(0, max);
+    }
+
     private ObjectNode buildDeliveryInfo() {
         ObjectNode delivery = objectMapper.createObjectNode();
         delivery.put("deliveryType", "DELIVERY");
         delivery.put("deliveryAttributeType", "NORMAL");
+        // 택배 배송상품은 택배사 코드 필수(예: 로젠="KGB")
+        if (props.getDeliveryCompany() != null && !props.getDeliveryCompany().isBlank()) {
+            delivery.put("deliveryCompany", props.getDeliveryCompany());
+        }
+        // 택배 배송상품은 택배사 코드 필수(예: 로젠="KGB")
+        if (props.getDeliveryCompany() != null && !props.getDeliveryCompany().isBlank()) {
+            delivery.put("deliveryCompany", props.getDeliveryCompany());
+        }
 
         ObjectNode fee = delivery.putObject("deliveryFee");
         fee.put("deliveryFeeType", "PAID");
+        fee.put("deliveryFeePayType", "PREPAID"); // 결제방식(선불) 필수
         fee.put("baseFee", props.getDeliveryBaseFee() != null ? props.getDeliveryBaseFee() : 3000);
 
         Long shippingAddressId = props.getShippingAddressIdAsLong();
