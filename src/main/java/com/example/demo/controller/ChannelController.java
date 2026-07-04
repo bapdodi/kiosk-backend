@@ -101,6 +101,21 @@ public class ChannelController {
         return ResponseEntity.ok(Map.of("result", "판매중지 요청 완료"));
     }
 
+    /**
+     * 판매상태 변경(판매중 ↔ 판매중지). 요청 본문: {"status": "SALE" | "SUSPENSION"}.
+     * 성공 시 갱신된 링크(배지 갱신용)를, 실패 시 error 메시지를 반환한다.
+     */
+    @PostMapping("/products/{id}/status")
+    public ResponseEntity<?> changeStatus(@PathVariable("channel") String channel, @PathVariable("id") Long id,
+            @RequestBody Map<String, String> body) {
+        try {
+            return ResponseEntity.ok(syncService.changeStatus(channel, id, body.get("status")));
+        } catch (RuntimeException e) {
+            log.warn("[{}] 상태 변경 실패 productId={}: {}", channel, id, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", String.valueOf(e.getMessage())));
+        }
+    }
+
     // ── 판매 확인(최근 주문) ────────────────────────────────────────────────────
 
     /**

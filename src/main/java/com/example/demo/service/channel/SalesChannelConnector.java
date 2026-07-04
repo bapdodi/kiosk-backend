@@ -29,4 +29,7 @@ public interface SalesChannelConnector {
 
     /** 판매중지로 전환. */
     void suspend(long originProductNo);
+
+    /** 판매중(재판매)으로 전환. */
+    void resume(long originProductNo);
 }

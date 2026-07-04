@@ -95,6 +95,11 @@ public class NaverConnector implements SalesChannelConnector {
         client.changeProductStatus(originProductNo, STATUS_SUSPENSION);
     }
 
+    @Override
+    public void resume(long originProductNo) {
+        client.changeProductStatus(originProductNo, STATUS_SALE);
+    }
+
     /** 상품의 카테고리 중 NAVER 매핑이 있는 첫 카테고리의 리프 카테고리 ID. */
     private long resolveLeafCategoryId(Product product) {
         if (product.getCategories() != null) {

@@ -35,6 +35,7 @@ import lombok.extern.slf4j.Slf4j;
 public class ChannelSyncService {
 
     private static final String STATUS_SUSPENSION = "SUSPENSION";
+    private static final String STATUS_SALE = "SALE";
 
     private final ProductRepository productRepository;
     private final ChannelProductLinkRepository linkRepository;
@@ -176,6 +177,40 @@ public class ChannelSyncService {
             }
         }
         return results;
+    }
+
+    // ── 판매상태 변경(판매중 ↔ 판매중지) ─────────────────────────────────────────
+
+    /**
+     * 이미 채널에 등록된 상품의 판매상태를 변경한다. targetStatus 는 SALE(판매중/재판매) 또는 SUSPENSION(판매중지).
+     * 성공 시 갱신된 링크를 반환하고, 미등록·미지원 상태·채널 오류는 예외로 알린다.
+     */
+    public ChannelProductLink changeStatus(String channel, Long productId, String targetStatus) {
+        String ch = normalize(channel);
+        String status = targetStatus == null ? "" : targetStatus.trim().toUpperCase();
+        if (!STATUS_SALE.equals(status) && !STATUS_SUSPENSION.equals(status)) {
+            throw new ChannelApiException("지원하지 않는 상태입니다: " + targetStatus);
+        }
+        SalesChannelConnector conn = connector(ch);
+        ChannelProductLink link = linkRepository.findByProductIdAndChannel(productId, ch).orElse(null);
+        if (link == null || link.getOriginProductNo() == null) {
+            throw new ChannelApiException("아직 이 채널에 등록되지 않은 상품입니다. 먼저 전송해 주세요.");
+        }
+        try {
+            if (STATUS_SUSPENSION.equals(status)) {
+                conn.suspend(link.getOriginProductNo());
+            } else {
+                conn.resume(link.getOriginProductNo());
+            }
+            link.setNaverStatus(status);
+            link.setLastSyncedAt(LocalDateTime.now());
+            link.setLastError(null);
+            return linkRepository.save(link);
+        } catch (RuntimeException e) {
+            log.warn("[{}] 상태 변경 실패 productId={} → {}: {}", ch, productId, status, e.getMessage());
+            recordError(productId, ch, e.getMessage());
+            throw e;
+        }
     }
 
     // ── 판매중지 ────────────────────────────────────────────────────────────────
