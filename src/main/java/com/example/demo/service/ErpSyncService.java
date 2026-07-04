@@ -142,6 +142,7 @@ public class ErpSyncService {
                 String comboName = (gyu != null && !gyu.trim().isEmpty()) ? gyu.trim() : ("옵션 " + erpCode);
 
                 combinations.add(Combination.builder()
+                        .product(product)
                         .id(erpCode)
                         .name(comboName)
                         .price(price)
