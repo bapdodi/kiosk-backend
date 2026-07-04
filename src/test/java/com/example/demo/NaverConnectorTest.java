@@ -40,7 +40,9 @@ class NaverConnectorTest {
                 .channel("NAVER").kioskMainCategory("배관").naverLeafCategoryId(50003288L).build();
         when(repo.findByChannelAndKioskMainCategoryAndKioskSubCategoryIsNull("NAVER", "배관"))
                 .thenReturn(Optional.of(mapping));
-        return new NaverConnector(client, new NaverProductMapper(props, om), props, repo);
+        NaverProductMapper productMapper = new NaverProductMapper(
+                props, om, mock(com.example.demo.repository.CategoryRepository.class));
+        return new NaverConnector(client, productMapper, props, repo);
     }
 
     private NaverProperties baseProps() {

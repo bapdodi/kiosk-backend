@@ -72,6 +72,14 @@ public class Product {
     @Column
     private String originAreaCode;
 
+    /**
+     * 검색품질용 브랜드명. 상품마다 브랜드가 달라 개별 지정한다(프론트에서 입력).
+     * 지정되면 네이버 매핑 시 brandName/manufacturerName 에 우선 적용되고,
+     * 비어 있으면 상품명 자동검출 → .env 기본값("기타") 순으로 폴백한다.
+     */
+    @Column
+    private String brandName;
+
     @Column(nullable = false, columnDefinition = "INT DEFAULT 0")
     @Builder.Default
     private Integer stock = 0;

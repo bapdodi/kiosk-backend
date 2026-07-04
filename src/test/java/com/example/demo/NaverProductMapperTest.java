@@ -10,8 +10,11 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import com.example.demo.config.NaverProperties;
+import com.example.demo.entity.Category;
+import com.example.demo.entity.CategoryRef;
 import com.example.demo.entity.Combination;
 import com.example.demo.entity.Product;
+import com.example.demo.repository.CategoryRepository;
 import com.example.demo.service.naver.NaverAuthService;
 import com.example.demo.service.naver.NaverProductMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,7 +33,8 @@ class NaverProductMapperTest {
         props.setAsTelephone("010-0000-0000");
         props.setShippingAddressId("111");
         props.setReturnAddressId("222");
-        return new NaverProductMapper(props, objectMapper);
+        // 카테고리 없는 테스트 상품은 findById 를 호출하지 않으므로 빈 목(mock)으로 충분.
+        return new NaverProductMapper(props, objectMapper, org.mockito.Mockito.mock(CategoryRepository.class));
     }
 
     @Test
@@ -104,11 +108,78 @@ class NaverProductMapperTest {
 
         ObjectNode seo = (ObjectNode) detail.get("seoInfo");
         assertNotNull(seo);
-        assertEquals("스테인리스 엘보", seo.get("pageTitle").asText());
+        // pageTitle 은 검색 키워드가 보강된 상품명(원래 이름으로 시작)
+        assertTrue(seo.get("pageTitle").asText().startsWith("스테인리스 엘보"));
         // 공백 정규화 + '#' 제거 + 중복(배관) 제거
         assertFalse(seo.get("metaDescription").asText().contains("  "));
         assertEquals("배관", seo.get("sellerTags").get(0).get("text").asText());
         assertEquals(3, seo.get("sellerTags").size());
+    }
+
+    @Test
+    void 해시태그가_없으면_상품명과_카테고리로_검색태그_자동생성_및_브랜드제조사_주입() {
+        CategoryRepository repo = org.mockito.Mockito.mock(CategoryRepository.class);
+        org.mockito.Mockito.when(repo.findById("pipes"))
+                .thenReturn(java.util.Optional.of(Category.builder().id("pipes").name("배관용품").build()));
+        NaverProperties props = new NaverProperties();
+        props.setBrandName("행복철물");
+        props.setManufacturerName("자체제작");
+        NaverProductMapper mapper = new NaverProductMapper(props, objectMapper, repo);
+
+        Product p = Product.builder()
+                .id(9L)
+                .name("PVC 배관 100mm")
+                .price(1000)
+                .stock(1)
+                .categories(new java.util.LinkedHashSet<>(List.of(new CategoryRef("pipes", null))))
+                .build();
+
+        ObjectNode detail = (ObjectNode) mapper
+                .toProductPayload(p, 1L, List.of("https://cdn.naver/x.jpg"), "SALE")
+                .get("originProduct").get("detailAttribute");
+
+        // 브랜드/제조사/모델 주입
+        ObjectNode search = (ObjectNode) detail.get("naverShoppingSearchInfo");
+        assertNotNull(search);
+        assertEquals("행복철물", search.get("brandName").asText());
+        assertEquals("자체제작", search.get("manufacturerName").asText());
+        assertEquals("PVC 배관 100mm", search.get("modelName").asText());
+
+        // 상품명 토큰(PVC, 배관, 100mm) + 카테고리 한글명(배관용품)으로 태그 자동생성
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        detail.get("seoInfo").get("sellerTags").forEach(n -> texts.add(n.get("text").asText()));
+        assertTrue(texts.contains("배관"), texts.toString());
+        assertTrue(texts.contains("배관용품"), texts.toString());
+    }
+
+    @Test
+    void 상품명에_도메인_키워드가_보강되고_시드태그가_붙는다() {
+        // "피비 아답타 엘보" → stem(피비/아답타/엘보) 시드 키워드가 이름/태그에 반영
+        Product p = Product.builder().id(10L).name("피비 아답타 엘보").price(1000).stock(1).build();
+        ObjectNode origin = (ObjectNode) mapper()
+                .toProductPayload(p, 1L, List.of("https://cdn.naver/a.jpg"), "SALE")
+                .get("originProduct");
+
+        String name = origin.get("name").asText();
+        assertTrue(name.startsWith("피비 아답타 엘보"), name);
+        assertTrue(name.contains("배관연결"), name);
+        assertTrue(name.length() <= 100, "이름은 100자 이하: " + name.length());
+
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        origin.get("detailAttribute").get("seoInfo").get("sellerTags").forEach(n -> texts.add(n.get("text").asText()));
+        assertTrue(texts.contains("아답타"), texts.toString());
+        assertTrue(texts.contains("엘보"), texts.toString());
+    }
+
+    @Test
+    void 상품명에_알려진_제조사가_있으면_브랜드제조사로_채택된다() {
+        Product p = Product.builder().id(11L).name("이지조인트 엘보 EZ-JOINT").price(1000).stock(1).build();
+        ObjectNode search = (ObjectNode) mapper()
+                .toProductPayload(p, 1L, List.of("https://cdn.naver/e.jpg"), "SALE")
+                .get("originProduct").get("detailAttribute").get("naverShoppingSearchInfo");
+
+        assertEquals("조인탑", search.get("brandName").asText());
+        assertEquals("조인탑", search.get("manufacturerName").asText());
     }
 
     @Test

@@ -43,6 +43,19 @@ public class NaverProperties {
     /** 원산지 코드(네이버 원산지 코드 체계). 예: 국산="00" */
     private String originAreaCode;
 
+    /**
+     * 검색품질용 브랜드명(detailAttribute.naverShoppingSearchInfo.brandName)의 기본값.
+     * 상품(Product.brandName)에 개별 브랜드가 지정되면 그 값이 우선한다.
+     * 브랜드가 제각각이라 일괄 지정이 어려운 경우를 위한 폴백이라 "기타"를 기본값으로 둔다.
+     */
+    private String brandName = "기타";
+
+    /**
+     * 검색품질용 제조사명(detailAttribute.naverShoppingSearchInfo.manufacturerName)의 기본값.
+     * 상품별 브랜드가 지정되면 그 값을 제조사명으로도 쓰고, 없으면 "기타"로 폴백한다.
+     */
+    private String manufacturerName = "기타";
+
     /** 택배사 코드(네이버 배송사 코드). 예: 로젠택배="KGB". 택배 배송상품은 필수. */
     private String deliveryCompany;
 

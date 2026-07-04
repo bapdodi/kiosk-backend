@@ -17,6 +17,8 @@ import com.example.demo.entity.ChannelCategoryMapping;
 import com.example.demo.entity.ChannelProductLink;
 import com.example.demo.repository.ChannelCategoryMappingRepository;
 import com.example.demo.service.channel.ChannelSyncService;
+import com.example.demo.service.naver.NaverOrderService;
+import com.example.demo.service.naver.RecentSale;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,7 @@ public class ChannelController {
 
     private final ChannelSyncService syncService;
     private final ChannelCategoryMappingRepository categoryMappingRepository;
+    private final NaverOrderService naverOrderService;
 
     // ── 상태 ──────────────────────────────────────────────────────────────────
 
@@ -96,6 +99,27 @@ public class ChannelController {
     public ResponseEntity<?> suspend(@PathVariable("channel") String channel, @PathVariable("id") Long id) {
         syncService.suspend(channel, id);
         return ResponseEntity.ok(Map.of("result", "판매중지 요청 완료"));
+    }
+
+    // ── 판매 확인(최근 주문) ────────────────────────────────────────────────────
+
+    /**
+     * 최근 판매(상품주문) 목록. 네이버 조회 범위 제한에 맞춰 hours 는 1~24.
+     * 현재는 네이버만 지원한다(다른 채널 요청 시 501).
+     */
+    @GetMapping("/sales/recent")
+    public ResponseEntity<?> recentSales(@PathVariable("channel") String channel,
+            @RequestParam(name = "hours", defaultValue = "24") int hours) {
+        if (!"NAVER".equalsIgnoreCase(channel)) {
+            return ResponseEntity.status(501).body(Map.of("error", "지원하지 않는 채널입니다: " + channel));
+        }
+        try {
+            List<RecentSale> sales = naverOrderService.recentSales(hours);
+            return ResponseEntity.ok(Map.of("hours", Math.max(1, Math.min(hours, 24)), "count", sales.size(), "sales", sales));
+        } catch (RuntimeException e) {
+            log.warn("[{}] 최근 판매 조회 실패: {}", channel, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", String.valueOf(e.getMessage())));
+        }
     }
 
     // ── 동기화(미리보기 → 수락 반영) ────────────────────────────────────────────

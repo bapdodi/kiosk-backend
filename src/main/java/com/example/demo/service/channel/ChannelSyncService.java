@@ -275,7 +275,11 @@ public class ChannelSyncService {
             String fileName = extractFileName(url);
             try {
                 byte[] bytes = fileService.loadFileBytes(fileName);
-                parts.add(new ImagePart(bytes, fileName, guessMediaType(fileName)));
+                // 확장자가 아니라 실제 바이트(매직넘버)로 형식을 판별한다. 저장소에는 .PNG 로 저장돼 있지만
+                // 실제 내용은 JPEG 인 파일이 많아, 확장자만 믿으면 채널이 "올바른 이미지 파일이 아닙니다"로 거부한다.
+                MediaType mediaType = detectMediaType(bytes, fileName);
+                String sendName = withExtensionFor(fileName, mediaType);
+                parts.add(new ImagePart(bytes, sendName, mediaType));
             } catch (IOException e) {
                 log.warn("이미지 파일 로드 실패(건너뜀): {} ({})", fileName, e.getMessage());
             }
@@ -301,6 +305,39 @@ public class ChannelSyncService {
             return MediaType.IMAGE_GIF;
         }
         return MediaType.IMAGE_JPEG;
+    }
+
+    /** 파일 시그니처(매직넘버)로 실제 이미지 형식을 판별한다. 판별 불가 시 확장자 기반 추정으로 폴백. */
+    private MediaType detectMediaType(byte[] bytes, String fileName) {
+        if (bytes != null && bytes.length >= 4) {
+            int b0 = bytes[0] & 0xFF, b1 = bytes[1] & 0xFF, b2 = bytes[2] & 0xFF, b3 = bytes[3] & 0xFF;
+            if (b0 == 0xFF && b1 == 0xD8 && b2 == 0xFF) {
+                return MediaType.IMAGE_JPEG;
+            }
+            if (b0 == 0x89 && b1 == 0x50 && b2 == 0x4E && b3 == 0x47) {
+                return MediaType.IMAGE_PNG;
+            }
+            if (b0 == 0x47 && b1 == 0x49 && b2 == 0x46) {
+                return MediaType.IMAGE_GIF;
+            }
+        }
+        return guessMediaType(fileName);
+    }
+
+    /** 전송 파일명 확장자를 실제 형식에 맞춘다. 네이버 PhotoInfra 는 content-type 뿐 아니라 확장자도 검증한다. */
+    private String withExtensionFor(String fileName, MediaType mediaType) {
+        int dot = fileName.lastIndexOf('.');
+        String base = dot >= 0 ? fileName.substring(0, dot) : fileName;
+        if (MediaType.IMAGE_JPEG.equals(mediaType)) {
+            return base + ".jpg";
+        }
+        if (MediaType.IMAGE_PNG.equals(mediaType)) {
+            return base + ".png";
+        }
+        if (MediaType.IMAGE_GIF.equals(mediaType)) {
+            return base + ".gif";
+        }
+        return fileName;
     }
 
     private String writeJson(List<String> list) {

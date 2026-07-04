@@ -85,6 +85,7 @@ public class ProductService {
                     product.setPrice(productDetails.getPrice());
                     product.setGyu(productDetails.getGyu());
                     product.setOriginAreaCode(productDetails.getOriginAreaCode());
+                    product.setBrandName(productDetails.getBrandName());
                     product.setHashtags(productDetails.getHashtags());
                     product.setImages(productDetails.getImages());
                     product.setOptionImages(productDetails.getOptionImages());
