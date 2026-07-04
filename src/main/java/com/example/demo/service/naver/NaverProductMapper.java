@@ -185,8 +185,8 @@ public class NaverProductMapper {
      * 반환: [salePrice(판매가), immediateDiscount(즉시할인액,원), optionBase(옵션 추가금 기준가)].
      *
      *  - 옵션 없음, 또는 기본 판매가로 모든 옵션이 범위에 들어오면: 그대로 [단가, 0, 단가].
-     *  - 넓으면: [최고옵션가, 최고-최저, 최저옵션가].
-     *    추가금 = combo - 최저 ∈ [0, 최고-최저] ⊆ [-50%,+100% of 최고] 를 항상 만족하고,
+     *  - 넓으면: 대표(추가금 0)를 "재고>0 옵션가 중 최저가" 로 잡아 메인가격을 가장 낮은 옵션가에 맞춘다.
+     *    추가금 = combo - 최저재고옵션가 ≥ 0 이 되고, 넓은 스프레드는 판매가↑·즉시할인으로 흡수한다.
      *    고객 결제가 = (판매가-할인)+추가금 = 최저 + (combo-최저) = combo 로 정확히 유지된다.
      */
     private int[] pricingPlan(Product product) {
@@ -212,27 +212,25 @@ public class NaverProductMapper {
         if (base > 0 && baseIsInStockCombo && lowP >= base - base / 2 && highP <= base * 2) {
             return new int[] { base, 0, base };
         }
-        // 2) 그 외: 즉시할인으로 옵션가를 판매가의 ±50%(할인 시 실측 상한) 안에 대칭 배치한다.
-        //    대표(추가금 0)는 "재고>0 옵션가 중 최저~최고 중앙값에 가장 가까운 값" 으로 잡아, 필수 0원 옵션을 만든다.
-        int mid = (lowP + highP) / 2;
+        // 2) 그 외: 즉시할인으로 옵션가를 판매가의 ±50%(할인 시 실측 상한) 안에 배치한다.
+        //    대표(추가금 0)는 "재고>0 옵션가 중 최저가" 로 잡아 메인가격을 가장 낮은 옵션가에 맞춘다.
+        //    → 모든 재고 옵션의 추가금이 0 이상이 되고, 넓은 스프레드는 판매가↑·즉시할인이 흡수한다.
         int rep = -1;
-        int bestWorst = Integer.MAX_VALUE;
         for (Combination c : combos) {
             int p = c.getPrice() != null ? c.getPrice() : 0;
             int st = c.getStock() != null ? c.getStock() : 0;
             if (st <= 0) {
                 continue;
             }
-            int worst = Math.max(highP - p, p - lowP); // 이 값을 대표로 삼을 때 최대 추가금 절대값
-            if (worst < bestWorst || (worst == bestWorst && Math.abs(p - mid) < Math.abs(rep - mid))) {
-                bestWorst = worst;
-                rep = p;
+            if (rep < 0 || p < rep) {
+                rep = p; // 재고>0 옵션가 중 최저 → 필수 0원(추가금) 옵션이자 메인가격
             }
         }
         if (rep < 0) { // 전부 재고 0인 예외적 경우
             rep = lowP;
-            bestWorst = highP - lowP;
         }
+        // 추가금 = combo - rep ∈ [lowP-rep, highP-rep]. 최대 절대값이 판매가의 ~50% 이내가 되도록 판매가를 키운다.
+        int bestWorst = Math.max(highP - rep, rep - lowP);
         int salePrice = Math.max((int) Math.ceil(bestWorst * 2.4), rep); // 즉시할인 = salePrice-rep ≥ 0 보장
         int discount = salePrice - rep;
         return new int[] { salePrice, discount, rep };

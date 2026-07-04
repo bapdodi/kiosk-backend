@@ -92,6 +92,37 @@ class NaverProductMapperTest {
     }
 
     @Test
+    void 옵션가_스프레드가_넓으면_메인가격은_최저옵션가_추가금은_모두_0이상() {
+        // 옵션 1,000 / 5,000 / 9,000 (모두 재고>0). 기본판매가 1,000 로는 +100% 범위(2,000) 초과 → 즉시할인 경로.
+        Product p = Product.builder()
+                .id(20L)
+                .name("연결구")
+                .price(1000)
+                .stock(0)
+                .combinations(List.of(
+                        Combination.builder().name("굵기:10mm").price(1000).stock(5).deleted(false).build(),
+                        Combination.builder().name("굵기:20mm").price(5000).stock(5).deleted(false).build(),
+                        Combination.builder().name("굵기:30mm").price(9000).stock(5).deleted(false).build()))
+                .build();
+
+        ObjectNode origin = (ObjectNode) mapper()
+                .toProductPayload(p, 123L, List.of("https://cdn.naver/c.jpg"), "SALE")
+                .get("originProduct");
+
+        int salePrice = origin.get("salePrice").asInt();
+        int discount = origin.get("customerBenefit").get("immediateDiscountPolicy")
+                .get("discountMethod").get("value").asInt();
+        // 메인가격(판매가 - 즉시할인) = 최저 옵션가 1,000 (중간값 5,000 이 아님)
+        assertEquals(1000, salePrice - discount);
+
+        // 추가금(옵션가) = combo - 1,000 → 0 / 4,000 / 8,000, 모두 0 이상
+        ObjectNode optionInfo = (ObjectNode) origin.get("detailAttribute").get("optionInfo");
+        assertEquals(0, optionInfo.get("optionCombinations").get(0).get("price").asInt());
+        assertEquals(4000, optionInfo.get("optionCombinations").get(1).get("price").asInt());
+        assertEquals(8000, optionInfo.get("optionCombinations").get(2).get("price").asInt());
+    }
+
+    @Test
     void 검색태그와_SEO정보가_payload에_포함된다() {
         Product p = Product.builder()
                 .id(4L)
