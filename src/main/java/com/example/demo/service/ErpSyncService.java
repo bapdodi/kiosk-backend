@@ -64,7 +64,7 @@ public class ErpSyncService {
 
         // 2. Get Items from ITEM table
         // Fetch GYU (Specification/규격) if available
-        String itemQuery = "SELECT CODE, ITEM, GYU, OUTC, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
+        String itemQuery = "SELECT CODE, ITEM, GYU, OUTA, OUTB, OUTC, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
         List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(itemQuery);
 
         // Grouping items by name manually to process them properly
@@ -87,6 +87,8 @@ public class ErpSyncService {
             // Get categories from the first row of the entire group
             Map<String, Object> firstRow = rows.get(0);
             Integer basePrice = toInteger(firstRow.get("OUTC"));
+            Integer basePriceA = toInteger(firstRow.get("OUTA"));
+            Integer basePriceB = toInteger(firstRow.get("OUTB"));
             Integer part = toInteger(firstRow.get("PARTCODE"));
             Integer mid = toInteger(firstRow.get("MIDCODE"));
             String mainCatId = String.format("erp-%d-0-0", part);
@@ -110,7 +112,9 @@ public class ErpSyncService {
                 erpCategories.add(new com.example.demo.entity.CategoryRef(mainCatId, subCatId));
                 product = Product.builder()
                         .name(name)
-                        .price(basePrice)
+                        .priceC(basePrice)
+                        .priceA(basePriceA)
+                        .priceB(basePriceB)
                         .categories(erpCategories)
                         .hashtags(new java.util.ArrayList<>())
                         .images(new java.util.ArrayList<>())
@@ -120,7 +124,9 @@ public class ErpSyncService {
                         .isComplexOptions(rows.size() > 1) // Multiple rows mean choices
                         .build();
             } else {
-                product.setPrice(basePrice);
+                product.setPriceC(basePrice);
+                product.setPriceA(basePriceA);
+                product.setPriceB(basePriceB);
                 // 대시보드에서 카테고리를 수동 변경하지 않은 상품만 ERP 분류로 갱신한다.
                 if (product.getIsCategoryModified() == null || !product.getIsCategoryModified()) {
                     if (product.getCategories() == null) {
@@ -136,7 +142,9 @@ public class ErpSyncService {
             for (Map<String, Object> row : rows) {
                 String erpCode = String.valueOf(row.get("CODE"));
                 String gyu = (String) row.get("GYU");
-                Integer price = toInteger(row.get("OUTC")); // Using OUTC for price as requested
+                Integer priceC = toInteger(row.get("OUTC")); // Using OUTC for price as requested
+                Integer priceA = toInteger(row.get("OUTA"));
+                Integer priceB = toInteger(row.get("OUTB"));
                 Integer stock = toInteger(row.get("JEGO"));
 
                 String comboName = (gyu != null && !gyu.trim().isEmpty()) ? gyu.trim() : ("옵션 " + erpCode);
@@ -145,7 +153,9 @@ public class ErpSyncService {
                         .product(product)
                         .id(erpCode)
                         .name(comboName)
-                        .price(price)
+                        .priceC(priceC)
+                        .priceA(priceA)
+                        .priceB(priceB)
                         .erpCode(erpCode)
                         .stock(stock)
                         .build());
@@ -189,7 +199,9 @@ public class ErpSyncService {
                     Combination existing = existingMap.get(newC.getErpCode());
                     if (existing != null) {
                         existing.setName(newC.getName());
-                        existing.setPrice(newC.getPrice());
+                        existing.setPriceC(newC.getPriceC());
+                        existing.setPriceA(newC.getPriceA());
+                        existing.setPriceB(newC.getPriceB());
                         existing.setStock(newC.getStock());
                         existing.setId(newC.getId());
                         product.getCombinations().add(existing);

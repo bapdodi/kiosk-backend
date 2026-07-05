@@ -43,7 +43,7 @@ class NaverProductMapperTest {
                 .id(1L)
                 .name("PVC 배관 100mm")
                 .description("튼튼한 배관")
-                .price(12000)
+                .priceC(12000)
                 .stock(30)
                 .build();
 
@@ -69,11 +69,11 @@ class NaverProductMapperTest {
         Product p = Product.builder()
                 .id(2L)
                 .name("호스")
-                .price(5000)
+                .priceC(5000)
                 .stock(0)
                 .combinations(List.of(
-                        Combination.builder().name("색상:빨강 / 굵기:10mm").price(0).stock(3).deleted(false).build(),
-                        Combination.builder().name("색상:파랑 / 굵기:20mm").price(500).stock(7).deleted(false).build()))
+                        Combination.builder().name("색상:빨강 / 굵기:10mm").priceC(0).stock(3).deleted(false).build(),
+                        Combination.builder().name("색상:파랑 / 굵기:20mm").priceC(500).stock(7).deleted(false).build()))
                 .build();
 
         ObjectNode payload = mapper().toProductPayload(p, 123L, List.of("https://cdn.naver/h.jpg"), "SALE");
@@ -97,12 +97,12 @@ class NaverProductMapperTest {
         Product p = Product.builder()
                 .id(20L)
                 .name("연결구")
-                .price(1000)
+                .priceC(1000)
                 .stock(0)
                 .combinations(List.of(
-                        Combination.builder().name("굵기:10mm").price(1000).stock(5).deleted(false).build(),
-                        Combination.builder().name("굵기:20mm").price(5000).stock(5).deleted(false).build(),
-                        Combination.builder().name("굵기:30mm").price(9000).stock(5).deleted(false).build()))
+                        Combination.builder().name("굵기:10mm").priceC(1000).stock(5).deleted(false).build(),
+                        Combination.builder().name("굵기:20mm").priceC(5000).stock(5).deleted(false).build(),
+                        Combination.builder().name("굵기:30mm").priceC(9000).stock(5).deleted(false).build()))
                 .build();
 
         ObjectNode origin = (ObjectNode) mapper()
@@ -128,7 +128,7 @@ class NaverProductMapperTest {
                 .id(4L)
                 .name("스테인리스 엘보")
                 .description("부식에 강한   스테인리스\n엘보 이음쇠")
-                .price(3000)
+                .priceC(3000)
                 .stock(5)
                 .hashtags(List.of("#배관", "엘보", "배관", "스테인리스"))
                 .build();
@@ -160,7 +160,7 @@ class NaverProductMapperTest {
         Product p = Product.builder()
                 .id(9L)
                 .name("PVC 배관 100mm")
-                .price(1000)
+                .priceC(1000)
                 .stock(1)
                 .categories(new java.util.LinkedHashSet<>(List.of(new CategoryRef("pipes", null))))
                 .build();
@@ -186,7 +186,7 @@ class NaverProductMapperTest {
     @Test
     void 상품명에_도메인_키워드가_보강되고_시드태그가_붙는다() {
         // "피비 아답타 엘보" → stem(피비/아답타/엘보) 시드 키워드가 이름/태그에 반영
-        Product p = Product.builder().id(10L).name("피비 아답타 엘보").price(1000).stock(1).build();
+        Product p = Product.builder().id(10L).name("피비 아답타 엘보").priceC(1000).stock(1).build();
         ObjectNode origin = (ObjectNode) mapper()
                 .toProductPayload(p, 1L, List.of("https://cdn.naver/a.jpg"), "SALE")
                 .get("originProduct");
@@ -204,7 +204,7 @@ class NaverProductMapperTest {
 
     @Test
     void 상품명에_알려진_제조사가_있으면_브랜드제조사로_채택된다() {
-        Product p = Product.builder().id(11L).name("이지조인트 엘보 EZ-JOINT").price(1000).stock(1).build();
+        Product p = Product.builder().id(11L).name("이지조인트 엘보 EZ-JOINT").priceC(1000).stock(1).build();
         ObjectNode search = (ObjectNode) mapper()
                 .toProductPayload(p, 1L, List.of("https://cdn.naver/e.jpg"), "SALE")
                 .get("originProduct").get("detailAttribute").get("naverShoppingSearchInfo");
@@ -215,7 +215,7 @@ class NaverProductMapperTest {
 
     @Test
     void 상품정보제공고시_ETC가_필수필드와_함께_구성된다() {
-        Product p = Product.builder().id(5L).name("PVC 티").price(1000).stock(1).build();
+        Product p = Product.builder().id(5L).name("PVC 티").priceC(1000).stock(1).build();
         ObjectNode notice = (ObjectNode) mapper()
                 .toProductPayload(p, 1L, List.of("https://cdn.naver/t.jpg"), "SALE")
                 .get("originProduct").get("detailAttribute").get("productInfoProvidedNotice");
@@ -231,7 +231,7 @@ class NaverProductMapperTest {
 
     @Test
     void 상품별_원산지코드가_있으면_우선사용된다() {
-        Product p = Product.builder().id(6L).name("수입 밸브").price(1000).stock(1)
+        Product p = Product.builder().id(6L).name("수입 밸브").priceC(1000).stock(1)
                 .originAreaCode("0200037").build();
         ObjectNode detail = (ObjectNode) mapper()
                 .toProductPayload(p, 1L, List.of("https://cdn.naver/v.jpg"), "SALE")
@@ -241,7 +241,7 @@ class NaverProductMapperTest {
 
     @Test
     void 판매중지_상태면_채널노출도_SUSPENSION() {
-        Product p = Product.builder().id(3L).name("t").price(1000).stock(1).build();
+        Product p = Product.builder().id(3L).name("t").priceC(1000).stock(1).build();
         ObjectNode payload = mapper().toProductPayload(p, 1L, List.of("https://cdn.naver/a.jpg"), "SUSPENSION");
         assertEquals("SUSPENSION", payload.get("originProduct").get("statusType").asText());
         assertEquals("SUSPENSION", payload.get("smartstoreChannelProduct").get("channelProductDisplayStatusType").asText());

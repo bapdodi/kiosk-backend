@@ -55,8 +55,24 @@ public class Product {
     @Builder.Default
     private Set<CategoryRef> categories = new LinkedHashSet<>();
 
+    /**
+     * 키오스크·네이버·주문에 실제 사용되는 판매가. ERP OUTC(C단가) 값이 들어온다.
+     * DB 컬럼명은 price_c. (A/B단가는 priceA/priceB 에 별도 저장)
+     */
     @Column(nullable = false)
-    private Integer price;
+    private Integer priceC;
+
+    /**
+     * ERP OUTA(A단가). DANGA=2 거래처용. 동기화 시 저장만 해두고 표시/청구엔 사용하지 않는다(추후 활용 대비).
+     */
+    @Column
+    private Integer priceA;
+
+    /**
+     * ERP OUTB(B단가). DANGA=3 거래처용. 동기화 시 저장만 해두고 표시/청구엔 사용하지 않는다(추후 활용 대비).
+     */
+    @Column
+    private Integer priceB;
 
     /**
      * ERP 규격(GYU). 단일 규격(단순상품)의 규격을 보존하기 위한 필드.

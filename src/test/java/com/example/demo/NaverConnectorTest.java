@@ -56,7 +56,7 @@ class NaverConnectorTest {
     }
 
     private Product product() {
-        return Product.builder().id(1L).name("PVC 티").price(1000).stock(1)
+        return Product.builder().id(1L).name("PVC 티").priceC(1000).stock(1)
                 .categories(new LinkedHashSet<>(List.of(new CategoryRef("배관", null))))
                 .build();
     }

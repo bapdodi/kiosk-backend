@@ -190,7 +190,7 @@ public class NaverProductMapper {
      *    고객 결제가 = (판매가-할인)+추가금 = 최저 + (combo-최저) = combo 로 정확히 유지된다.
      */
     private int[] pricingPlan(Product product) {
-        int base = product.getPrice() != null ? product.getPrice() : 0;
+        int base = product.getPriceC() != null ? product.getPriceC() : 0;
         List<Combination> combos = activeCombinations(product);
         if (combos.isEmpty()) {
             return new int[] { base, 0, base };
@@ -199,7 +199,7 @@ public class NaverProductMapper {
         int highP = Integer.MIN_VALUE;
         boolean baseIsInStockCombo = false;
         for (Combination c : combos) {
-            int p = c.getPrice() != null ? c.getPrice() : 0;
+            int p = c.getPriceC() != null ? c.getPriceC() : 0;
             int st = c.getStock() != null ? c.getStock() : 0;
             lowP = Math.min(lowP, p);
             highP = Math.max(highP, p);
@@ -217,7 +217,7 @@ public class NaverProductMapper {
         //    → 모든 재고 옵션의 추가금이 0 이상이 되고, 넓은 스프레드는 판매가↑·즉시할인이 흡수한다.
         int rep = -1;
         for (Combination c : combos) {
-            int p = c.getPrice() != null ? c.getPrice() : 0;
+            int p = c.getPriceC() != null ? c.getPriceC() : 0;
             int st = c.getStock() != null ? c.getStock() : 0;
             if (st <= 0) {
                 continue;
@@ -333,7 +333,7 @@ public class NaverProductMapper {
             // 네이버 옵션가는 절대가격이 아니라 "추가금(증감액)" 이다. pricingPlan 이 정한 기준가(optionBase)를
             // 빼서 추가금으로 변환한다. (넓은 스프레드는 판매가↑+즉시할인으로 기준가를 최저옵션가에 맞춰둠)
             int basePrice = pricingPlan(product)[2];
-            int comboPrice = c.getPrice() != null ? c.getPrice() : 0;
+            int comboPrice = c.getPriceC() != null ? c.getPriceC() : 0;
             combo.put("price", comboPrice - basePrice); // 추가금 = 조합 절대가 - 기준가
             combo.put("usable", true);
         }

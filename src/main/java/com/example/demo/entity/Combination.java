@@ -35,7 +35,9 @@ public class Combination {
 
     private String id; // frontend id
     private String name;
-    private Integer price;
+    private Integer priceC;  // ERP OUTC(C단가) = 실제 판매가 (DB 컬럼 price_c)
+    private Integer priceA;  // ERP OUTA(A단가) — 저장만, 추후 활용 대비
+    private Integer priceB;  // ERP OUTB(B단가) — 저장만, 추후 활용 대비
     private String erpCode;
     private Integer stock;
     private Integer sortOrder;
