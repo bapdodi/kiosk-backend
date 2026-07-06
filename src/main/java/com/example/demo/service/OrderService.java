@@ -56,6 +56,21 @@ public class OrderService {
         return savedOrder;
     }
 
+    /**
+     * 기존 주문을 ERP 로 재전송한다. 최초 생성 시 ERP 동기화가 실패(예: finalPrice null → NPE)한
+     * 주문을 코드 수정 배포 후 수동으로 다시 밀어넣기 위한 관리자용 경로.
+     * sendOrderToErp 은 erpCode + ERP ITEM 단가로 금액을 다시 계산하므로 저장된 finalPrice 가 null 이어도 정상 처리된다.
+     */
+    @Transactional
+    public boolean resyncOrderToErp(Long id) {
+        return orderRepository.findById(id)
+                .map(order -> {
+                    erpSyncService.sendOrderToErp(order);
+                    return true;
+                })
+                .orElse(false);
+    }
+
     @Transactional
     public Optional<Order> updateOrderStatus(Long id, String status) {
         return orderRepository.findById(id)

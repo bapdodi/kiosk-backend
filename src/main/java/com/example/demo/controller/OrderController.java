@@ -41,6 +41,15 @@ public class OrderController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @PostMapping("/admin/{id}/resync-erp")
+    public ResponseEntity<String> resyncErp(@PathVariable("id") Long id) {
+        if (orderService.resyncOrderToErp(id)) {
+            return ResponseEntity.ok("resynced order " + id);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @DeleteMapping("/admin/{id}")
     public ResponseEntity<Void> deleteOrder(@PathVariable("id") Long id) {
         if (orderService.deleteOrder(id)) {

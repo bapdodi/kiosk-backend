@@ -313,7 +313,7 @@ public class ErpSyncService {
                         ? order.getErpCustomerCode()
                         : "1";
 
-                int actualPrice = item.getFinalPrice();
+                int actualPrice = item.getFinalPrice() != null ? item.getFinalPrice() : 0;
                 try {
                     Map<String, Object> prices = erpJdbcTemplate.queryForMap(
                             "SELECT ISNULL(OUTA,0) as outA, ISNULL(OUTB,0) as outB, ISNULL(OUTC,0) as outC FROM ITEM WHERE CODE = ?",
