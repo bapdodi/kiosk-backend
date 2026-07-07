@@ -300,12 +300,19 @@ public class ErpSyncService {
                 "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WHERE dDATE = ?", Integer.class, sujuDateStr);
         int orderDno = (maxDnoForOrder != null ? maxDnoForOrder : 0) + 1;
         int editNo = 0;
+        // 거래처 실청구가(A/B/C단가 반영) 합계. 주문 totalAmount 를 실청구가 기준으로 갱신한다.
+        long orderChargedTotal = 0;
 
         for (com.example.demo.entity.OrderItem item : order.getItems()) {
             try {
                 // If erpCode is missing, we can't sync it properly
                 if (item.getErpCode() == null || item.getErpCode().isEmpty()) {
                     log.warn("OrderItem {} has no ERP code. Skipping ERP sync for this item.", item.getName());
+                    // ERP 전송 불가 품목은 소비자가(finalPrice)를 실청구가로 간주해 합계에 반영한다.
+                    int fp = item.getFinalPrice() != null ? item.getFinalPrice() : 0;
+                    int q = item.getQuantity() != null ? item.getQuantity() : 1;
+                    item.setChargedPrice(fp);
+                    orderChargedTotal += (long) fp * q;
                     continue;
                 }
 
@@ -342,6 +349,9 @@ public class ErpSyncService {
                 }
 
                 int ea = item.getQuantity() != null ? item.getQuantity() : 1;
+                // 거래처 DANGA 반영 실청구가를 주문 품목에 저장(주문상세/매출 표시에 사용).
+                item.setChargedPrice(actualPrice);
+                orderChargedTotal += (long) actualPrice * ea;
                 long gum = (long) actualPrice * ea;
                 long vat = gum / 10;
 
@@ -391,6 +401,9 @@ public class ErpSyncService {
                 log.error("Failed to sync item {} to ERP: {}", item.getName(), e.getMessage());
             }
         }
+
+        // 주문 총액을 실청구가(거래처 DANGA 반영) 기준으로 갱신. 관리 엔티티라 트랜잭션 커밋 시 반영된다.
+        order.setTotalAmount((int) orderChargedTotal);
     }
 
     /**
