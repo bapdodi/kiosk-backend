@@ -23,6 +23,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// 모니터링 — Actuator + Prometheus 스크레이프 엔드포인트(/actuator/prometheus)
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'io.micrometer:micrometer-registry-prometheus'
 	// MinIO(S3 호환) 오브젝트 스토리지 클라이언트. 업로드 이미지를 로컬 디스크 대신 MinIO 에 저장한다.
 	implementation 'io.minio:minio:8.5.14'
 	runtimeOnly 'com.microsoft.sqlserver:mssql-jdbc'

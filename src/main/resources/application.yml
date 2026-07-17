@@ -31,6 +31,20 @@ storage:
     # 운영 컨테이너에서는 /app/uploads 로 지정. 마이그레이션 완료 후 값을 비워 재배포.
     migrate-local-dir: ${MINIO_MIGRATE_LOCAL_DIR:}
 
+# 모니터링 — oracle-arm의 Prometheus가 tailnet으로 /actuator/prometheus를 스크레이프한다.
+# health/info/prometheus만 노출하고, env·heapdump 등 민감 엔드포인트는 열지 않는다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never   # 인증 없이 열리는 엔드포인트라 상세는 숨긴다
+  metrics:
+    tags:
+      application: kiosk    # 모든 메트릭에 application="kiosk" 라벨을 붙여 Grafana에서 구분
+
 logging:
   level:
     root: INFO
