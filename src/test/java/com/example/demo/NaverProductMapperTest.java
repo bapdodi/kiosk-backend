@@ -148,6 +148,31 @@ class NaverProductMapperTest {
     }
 
     @Test
+    void 검색태그의_내부_특수문자와_공백은_제거된다() {
+        // 네이버 판매자태그는 한글/영문/숫자만 허용 → 내부 '/'·공백·'·' 등이 남으면 400(NotAllowedChar).
+        Product p = Product.builder()
+                .id(5L)
+                .name("배관 이음쇠")
+                .priceC(1000)
+                .stock(1)
+                .hashtags(List.of("1/2인치", "20A 배관", "PB·부속", "정상태그"))
+                .build();
+
+        var tags = mapper()
+                .toProductPayload(p, 1L, List.of("https://cdn.naver/t.jpg"), "SALE")
+                .get("originProduct").get("detailAttribute").get("seoInfo").get("sellerTags");
+
+        for (var tag : tags) {
+            assertTrue(tag.get("text").asText().matches("[0-9A-Za-z가-힣]+"),
+                    "허용되지 않는 문자 포함: " + tag.get("text").asText());
+        }
+        assertEquals("12인치", tags.get(0).get("text").asText());
+        assertEquals("20A배관", tags.get(1).get("text").asText());
+        assertEquals("PB부속", tags.get(2).get("text").asText());
+        assertEquals("정상태그", tags.get(3).get("text").asText());
+    }
+
+    @Test
     void 해시태그가_없으면_상품명과_카테고리로_검색태그_자동생성_및_브랜드제조사_주입() {
         CategoryRepository repo = org.mockito.Mockito.mock(CategoryRepository.class);
         org.mockito.Mockito.when(repo.findById("pipes"))

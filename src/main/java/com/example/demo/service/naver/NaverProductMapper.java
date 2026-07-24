@@ -509,7 +509,11 @@ public class NaverProductMapper {
         return sb.toString();
     }
 
-    /** 태그 정규화: '#'/양끝 구두점 제거, 2~25자만 허용, LinkedHashSet 으로 중복 제거. */
+    /**
+     * 태그 정규화: '#' 제거 후 한글·영문·숫자 외 문자(공백·구두점·특수문자)를 모두 제거, 2~25자만 허용.
+     * 네이버 판매자태그(sellerTags)는 한글/영문/숫자만 허용하므로 내부 특수문자·공백까지 제거해야
+     * "허용되지 않는 문자" 400 오류를 피할 수 있다(예: "1/2인치" → "12인치", "20A 배관" → "20A배관").
+     */
     private void addTag(java.util.Set<String> tags, String raw) {
         if (raw == null) {
             return;
@@ -518,8 +522,8 @@ public class NaverProductMapper {
         if (t.startsWith("#")) {
             t = t.substring(1).trim();
         }
-        // 앞뒤 구두점/특수문자만 정리(한글·영숫자·내부 공백은 보존)
-        t = t.replaceAll("^[^0-9A-Za-z가-힣]+", "").replaceAll("[^0-9A-Za-z가-힣]+$", "");
+        // 한글·영숫자만 남기고 전부 제거(내부 공백/구두점/특수문자 포함)
+        t = t.replaceAll("[^0-9A-Za-z가-힣]", "");
         if (t.length() < MIN_TAG_LENGTH) {
             return;
         }
