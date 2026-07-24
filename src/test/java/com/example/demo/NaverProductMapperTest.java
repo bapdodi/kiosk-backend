@@ -148,8 +148,9 @@ class NaverProductMapperTest {
     }
 
     @Test
-    void 검색태그의_내부_특수문자와_공백은_제거된다() {
+    void 검색태그의_특수문자는_경계로_분리되어_개별_태그가_된다() {
         // 네이버 판매자태그는 한글/영문/숫자만 허용 → 내부 '/'·공백·'·' 등이 남으면 400(NotAllowedChar).
+        // 단순 제거로 붙이면 "1/2인치"→"12인치"(다른 크기)가 되므로, 특수문자를 경계로 분리한다.
         Product p = Product.builder()
                 .id(5L)
                 .name("배관 이음쇠")
@@ -158,18 +159,21 @@ class NaverProductMapperTest {
                 .hashtags(List.of("1/2인치", "20A 배관", "PB·부속", "정상태그"))
                 .build();
 
-        var tags = mapper()
+        var tagsNode = mapper()
                 .toProductPayload(p, 1L, List.of("https://cdn.naver/t.jpg"), "SALE")
                 .get("originProduct").get("detailAttribute").get("seoInfo").get("sellerTags");
 
-        for (var tag : tags) {
-            assertTrue(tag.get("text").asText().matches("[0-9A-Za-z가-힣]+"),
-                    "허용되지 않는 문자 포함: " + tag.get("text").asText());
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        for (var tag : tagsNode) {
+            String text = tag.get("text").asText();
+            assertTrue(text.matches("[0-9A-Za-z가-힣]+"), "허용되지 않는 문자 포함: " + text);
+            texts.add(text);
         }
-        assertEquals("12인치", tags.get(0).get("text").asText());
-        assertEquals("20A배관", tags.get(1).get("text").asText());
-        assertEquals("PB부속", tags.get(2).get("text").asText());
-        assertEquals("정상태그", tags.get(3).get("text").asText());
+        // "1/2인치" → "1"(1자, 제외) + "2인치", "20A 배관" → "20A"+"배관", "PB·부속" → "PB"+"부속"
+        assertTrue(texts.containsAll(List.of("2인치", "20A", "배관", "PB", "부속", "정상태그")), texts.toString());
+        // 잘못 결합된 "12인치"/"20A배관" 은 생성되지 않아야 한다
+        assertFalse(texts.contains("12인치"), texts.toString());
+        assertFalse(texts.contains("20A배관"), texts.toString());
     }
 
     @Test

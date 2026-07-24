@@ -510,9 +510,15 @@ public class NaverProductMapper {
     }
 
     /**
-     * 태그 정규화: '#' 제거 후 한글·영문·숫자 외 문자(공백·구두점·특수문자)를 모두 제거, 2~25자만 허용.
-     * 네이버 판매자태그(sellerTags)는 한글/영문/숫자만 허용하므로 내부 특수문자·공백까지 제거해야
-     * "허용되지 않는 문자" 400 오류를 피할 수 있다(예: "1/2인치" → "12인치", "20A 배관" → "20A배관").
+     * 태그 정규화: '#' 제거 후 한글·영문·숫자 외 문자(공백·구두점·특수문자)를 '경계'로 분할해
+     * 각 조각을 개별 태그로 추가한다. 2~25자 조각만 허용, LinkedHashSet 으로 중복 제거.
+     *
+     * 네이버 판매자태그(sellerTags)는 한글/영문/숫자만 허용한다. 특수문자를 단순 제거하지 않고
+     * 분할하는 이유는, 붙여버리면 "1/2인치"가 "12인치"(전혀 다른 크기)처럼 잘못된 태그가 되기 때문이다.
+     * 분할하면 "20A 배관"→"20A","배관", "PB·부속"→"PB","부속" 처럼 검색에도 유리한 개별 키워드가 된다.
+     * (분수 규격 "1/2인치"는 "2인치" 같은 오해 소지가 남지만, 슬래시/소수점이 태그 금지 문자라
+     *  분수 자체를 태그로 정확히 표현할 방법이 없다. 정확한 표기가 필요하면 해시태그에 "반인치"처럼
+     *  단어로 넣어야 한다.)
      */
     private void addTag(java.util.Set<String> tags, String raw) {
         if (raw == null) {
@@ -522,15 +528,13 @@ public class NaverProductMapper {
         if (t.startsWith("#")) {
             t = t.substring(1).trim();
         }
-        // 한글·영숫자만 남기고 전부 제거(내부 공백/구두점/특수문자 포함)
-        t = t.replaceAll("[^0-9A-Za-z가-힣]", "");
-        if (t.length() < MIN_TAG_LENGTH) {
-            return;
+        // 허용 문자(한글·영숫자) 외 문자를 경계로 분할 → 각 조각을 개별 태그로
+        for (String piece : t.split("[^0-9A-Za-z가-힣]+")) {
+            if (piece.length() < MIN_TAG_LENGTH) {
+                continue;
+            }
+            tags.add(piece.length() > MAX_TAG_LENGTH ? piece.substring(0, MAX_TAG_LENGTH) : piece);
         }
-        if (t.length() > MAX_TAG_LENGTH) {
-            t = t.substring(0, MAX_TAG_LENGTH);
-        }
-        tags.add(t);
     }
 
     /** 상품명을 공백/구분자 기준으로 토큰화. */
