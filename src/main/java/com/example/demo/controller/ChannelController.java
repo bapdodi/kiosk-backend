@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.demo.entity.ChannelCategoryMapping;
 import com.example.demo.entity.ChannelProductLink;
+import com.example.demo.entity.Combination;
 import com.example.demo.repository.ChannelCategoryMappingRepository;
 import com.example.demo.service.channel.ChannelSyncService;
 import com.example.demo.service.naver.NaverOrderService;
@@ -79,13 +80,37 @@ public class ChannelController {
 
     // ── 전송(등록/수정) ────────────────────────────────────────────────────────
 
+    /**
+     * 상품 전송(등록/수정). 본문(선택)으로 규격(옵션) 조합을 넘기면, 전송 직전 관리자가 수정한
+     * 그 조합으로 전송한다(키오스크 DB 는 변경하지 않음). 본문이 없으면 저장된 조합 그대로 전송.
+     */
     @PostMapping("/products/{id}/push")
-    public ResponseEntity<?> push(@PathVariable("channel") String channel, @PathVariable("id") Long id) {
+    public ResponseEntity<?> push(@PathVariable("channel") String channel, @PathVariable("id") Long id,
+            @RequestBody(required = false) PushRequest req) {
         try {
-            return ResponseEntity.ok(syncService.push(channel, id));
+            List<Combination> override = req == null ? null : req.toCombinations();
+            return ResponseEntity.ok(syncService.push(channel, id, override));
         } catch (RuntimeException e) {
             log.warn("[{}] 전송 실패 productId={}: {}", channel, id, e.getMessage());
             return ResponseEntity.badRequest().body(Map.of("error", String.valueOf(e.getMessage())));
+        }
+    }
+
+    /** 전송 요청 본문. combinations 가 null 이면 저장된 조합 그대로 전송한다. */
+    public record PushRequest(List<ComboEdit> combinations) {
+        public record ComboEdit(String id, String name, Integer priceC, Integer stock) {
+        }
+
+        List<Combination> toCombinations() {
+            if (combinations == null) {
+                return null;
+            }
+            List<Combination> out = new java.util.ArrayList<>();
+            for (ComboEdit c : combinations) {
+                out.add(Combination.builder()
+                        .id(c.id()).name(c.name()).priceC(c.priceC()).stock(c.stock()).deleted(false).build());
+            }
+            return out;
         }
     }
 

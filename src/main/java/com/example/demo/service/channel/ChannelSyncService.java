@@ -82,19 +82,42 @@ public class ChannelSyncService {
     // ── 전송(등록/수정) ────────────────────────────────────────────────────────
 
     public ChannelProductLink push(String channel, Long productId) {
+        return push(channel, productId, null);
+    }
+
+    /**
+     * 상품 전송. comboOverride 가 주어지면 그 규격(옵션) 조합으로 전송한다(전송 직전 관리자 수정용).
+     * DB 의 상품/조합은 건드리지 않도록, 상품의 얕은 복사본에 조합만 교체해서 채널로 보낸다.
+     */
+    public ChannelProductLink push(String channel, Long productId, List<Combination> comboOverride) {
         String ch = normalize(channel);
         SalesChannelConnector conn = connector(ch);
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ChannelApiException("상품을 찾을 수 없습니다: " + productId));
+        Product effective = applyComboOverride(product, comboOverride);
         try {
             ChannelProductLink link = linkRepository.findByProductIdAndChannel(productId, ch).orElse(null);
             List<ImagePart> images = buildImageParts(product);
-            ConnectorResult result = conn.register(product, images, link != null ? link.getOriginProductNo() : null);
-            return saveSnapshot(link, productId, ch, product, result);
+            ConnectorResult result = conn.register(effective, images, link != null ? link.getOriginProductNo() : null);
+            return saveSnapshot(link, productId, ch, effective, result);
         } catch (RuntimeException e) {
             recordError(productId, ch, e.getMessage());
             throw e;
         }
+    }
+
+    /**
+     * comboOverride 가 있으면 상품의 얕은 복사본을 만들어 조합만 교체해 돌려준다.
+     * 원본은 JPA 관리 엔티티(조합은 orphanRemoval)라 절대 수정하지 않는다 — 복사본은 저장하지 않으므로 DB 에 영향 없다.
+     */
+    private Product applyComboOverride(Product product, List<Combination> comboOverride) {
+        if (comboOverride == null) {
+            return product;
+        }
+        Product copy = new Product();
+        org.springframework.beans.BeanUtils.copyProperties(product, copy);
+        copy.setCombinations(comboOverride);
+        return copy;
     }
 
     public List<PushResult> pushBulk(String channel, List<Long> productIds) {
