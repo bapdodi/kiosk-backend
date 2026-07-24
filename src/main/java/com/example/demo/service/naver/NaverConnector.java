@@ -31,6 +31,8 @@ public class NaverConnector implements SalesChannelConnector {
     public static final String CHANNEL = "NAVER";
     private static final String STATUS_SALE = "SALE";
     private static final String STATUS_SUSPENSION = "SUSPENSION";
+    /** 모든 상품에 적용되는 '기본 카테고리' 매핑의 대분류 값(특정 카테고리 매핑이 없을 때 폴백). */
+    public static final String DEFAULT_MAIN_CATEGORY = "*";
 
     private final NaverCommerceClient client;
     private final NaverProductMapper mapper;
@@ -100,7 +102,12 @@ public class NaverConnector implements SalesChannelConnector {
         client.changeProductStatus(originProductNo, STATUS_SALE);
     }
 
-    /** 상품의 카테고리 중 NAVER 매핑이 있는 첫 카테고리의 리프 카테고리 ID. */
+    /**
+     * 상품의 리프 카테고리 ID 를 결정한다.
+     * 1) 상품 카테고리(대+중분류 → 대분류 전체) 중 매핑이 있는 첫 카테고리를 우선 사용하고,
+     * 2) 없으면 '기본 카테고리'({@link #DEFAULT_MAIN_CATEGORY}) 매핑으로 폴백한다.
+     * 기본 카테고리만 설정해두면 모든 상품이 별도 매핑 없이 자동으로 그 카테고리로 등록된다.
+     */
     private long resolveLeafCategoryId(Product product) {
         if (product.getCategories() != null) {
             for (CategoryRef ref : product.getCategories()) {
@@ -122,8 +129,15 @@ public class NaverConnector implements SalesChannelConnector {
                 }
             }
         }
+        // 폴백: 모든 상품에 적용되는 기본 카테고리
+        ChannelCategoryMapping fallback = categoryMappingRepository
+                .findByChannelAndKioskMainCategoryAndKioskSubCategoryIsNull(CHANNEL, DEFAULT_MAIN_CATEGORY)
+                .orElse(null);
+        if (fallback != null) {
+            return fallback.getNaverLeafCategoryId();
+        }
         throw new ChannelApiException(
-                "네이버 카테고리 매핑이 필요합니다. '" + product.getName() + "' 의 카테고리를 먼저 네이버 카테고리에 매핑하세요.");
+                "네이버 기본 카테고리가 설정되지 않았습니다. 연동 설정의 '카테고리 매핑' 탭에서 기본 네이버 카테고리를 먼저 지정하세요.");
     }
 
     private Long extractLong(JsonNode resp, String field) {
