@@ -35,10 +35,46 @@ public class DataInitializer {
             System.out.println("Default admin user updated/created: admin / admin123");
 
             migrateLegacyCategories();
+            migrateImageOrder();
 
             // 제품 및 카테고리 목 데이터는 모두 제거되었습니다.
             // 사용자가 직접 DB에 데이터를 입력할 수 있는 상태입니다.
         };
+    }
+
+    /**
+     * product_images.image_order 백필. images 에 @OrderColumn 을 도입하면 ddl-auto=update 가
+     * image_order 컬럼을 추가하지만 기존 행은 NULL 이라 리스트 순서가 깨진다.
+     * 컬럼이 존재하고 NULL 인 행이 있을 때만, 상품별 물리 순서(ctid)대로 0..n 을 채워
+     * 기존 노출 순서를 최대한 보존한다. NULL 이 없으면 아무것도 하지 않아 멱등하다.
+     */
+    private void migrateImageOrder() {
+        try {
+            Integer hasColumn = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.columns " +
+                            "WHERE table_name = 'product_images' AND column_name = 'image_order'",
+                    Integer.class);
+            if (hasColumn == null || hasColumn == 0) {
+                return; // 아직 스키마 갱신 전(컬럼 없음) → 다음 기동에 처리된다
+            }
+
+            Integer nullCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM product_images WHERE image_order IS NULL", Integer.class);
+            if (nullCount == null || nullCount == 0) {
+                return; // 이미 백필 완료 → 멱등
+            }
+
+            int updated = jdbcTemplate.update(
+                    "UPDATE product_images pi SET image_order = t.rn FROM (" +
+                            "  SELECT ctid, (row_number() OVER (PARTITION BY product_id ORDER BY ctid) - 1) AS rn " +
+                            "  FROM product_images WHERE image_order IS NULL" +
+                            ") t WHERE pi.ctid = t.ctid");
+
+            System.out.println("Backfilled image_order for " + updated + " product_images row(s)");
+        } catch (Exception e) {
+            // 백필 실패가 애플리케이션 기동을 막지 않도록 로깅만 한다.
+            System.err.println("Image order backfill skipped: " + e.getMessage());
+        }
     }
 
     /**

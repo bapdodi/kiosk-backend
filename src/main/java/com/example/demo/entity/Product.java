@@ -105,9 +105,15 @@ public class Product {
     @org.hibernate.annotations.BatchSize(size = 500)
     private List<String> hashtags;
 
+    /**
+     * 대표 이미지 목록. 첫 번째가 대표 사진이며 이후 순서가 키오스크/네이버 노출 순서다.
+     * @OrderColumn(image_order) 로 리스트 인덱스를 별도 컬럼에 저장해 순서를 영구 보존한다.
+     * (없으면 JPA 가 순서 없는 bag 으로 취급해 저장/조회 때 순서가 뒤섞인다.)
+     */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "product_images", joinColumns = @JoinColumn(name = "product_id"))
     @Column(name = "image_url")
+    @jakarta.persistence.OrderColumn(name = "image_order")
     @org.hibernate.annotations.BatchSize(size = 500)
     @Builder.Default
     private List<String> images = new ArrayList<>();

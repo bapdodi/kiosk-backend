@@ -122,35 +122,74 @@ public class ProductService {
         // 같은 원본 파일을 대표/옵션이 공유할 때 동일한 새 URL 로 매핑하기 위한 캐시.
         java.util.Map<String, String> renamedUrls = new java.util.HashMap<>();
 
-        // 1) 대표 이미지: {productId}-{n}.ext 로 정규화
+        // 1) 대표 이미지: {productId}-{n}.ext 로 정규화.
+        //    사진 순서를 바꾸면 목표 이름이 다른 사진이 지금 쓰고 있는 이름과 겹친다.
+        //    (예: [3,1,2] 로 재정렬하면 1-3 → 1-1 이 기존 1-1 을 덮어쓴다)
+        //    renameFile 은 copy + remove 라 덮어쓰기가 곧 사진 소실이므로,
+        //    이름이 바뀌어야 하는 파일을 먼저 고유 임시 이름으로 피신시킨 뒤(1단계)
+        //    최종 이름으로 옮긴다(2단계).
         if (product.getImages() != null && !product.getImages().isEmpty()) {
+            java.util.List<String> images = product.getImages();
+            int n = images.size();
+            String[] oldNames = new String[n];
+            String[] targets = new String[n];
+            String[] temps = new String[n];
+
+            for (int i = 0; i < n; i++) {
+                String url = images.get(i);
+                if (url == null || !url.contains("/uploads/")) {
+                    continue;
+                }
+                try {
+                    String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
+                    String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
+                    String extension = oldFileName.contains(".")
+                            ? oldFileName.substring(oldFileName.lastIndexOf("."))
+                            : "";
+                    oldNames[i] = oldFileName;
+                    targets[i] = product.getId() + "-" + (i + 1) + extension;
+                } catch (Exception e) {
+                    oldNames[i] = null;
+                    targets[i] = null;
+                }
+            }
+
+            // 1단계: 이름이 달라져야 하는 파일만 임시 이름으로 옮겨 충돌을 없앤다.
+            // 이미 제 이름인 파일은 그대로 둔다(목표 이름은 인덱스마다 달라 서로 겹치지 않는다).
+            for (int i = 0; i < n; i++) {
+                if (oldNames[i] == null || oldNames[i].equals(targets[i])) {
+                    continue;
+                }
+                String tmpName = "tmp-" + java.util.UUID.randomUUID() + "-" + targets[i];
+                try {
+                    fileService.renameFile(oldNames[i], tmpName);
+                    temps[i] = tmpName;
+                } catch (Exception e) {
+                    temps[i] = null; // 실패 시 기존 이름을 그대로 유지한다
+                }
+            }
+
+            // 2단계: 임시 이름 → 최종 이름.
             java.util.List<String> newUrls = new java.util.ArrayList<>();
-            for (int i = 0; i < product.getImages().size(); i++) {
-                String url = product.getImages().get(i);
-                if (url != null && url.contains("/uploads/")) {
+            for (int i = 0; i < n; i++) {
+                String url = images.get(i);
+                if (oldNames[i] == null || oldNames[i].equals(targets[i]) || temps[i] == null) {
+                    newUrls.add(url);
+                    continue;
+                }
+                try {
+                    fileService.renameFile(temps[i], targets[i]);
+                    String newUrl = fileService.getFileUrl(targets[i]);
+                    renamedUrls.put(url, newUrl);
+                    newUrls.add(newUrl);
+                    changed = true;
+                } catch (Exception e) {
+                    // 최종 이동 실패: 임시 이름에 파일이 갇히지 않도록 원래 이름으로 되돌린다.
                     try {
-                        String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
-                        String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
-
-                        String extension = oldFileName.contains(".")
-                                ? oldFileName.substring(oldFileName.lastIndexOf("."))
-                                : "";
-                        String expectedName = product.getId() + "-" + (i + 1) + extension;
-
-                        if (oldFileName.equals(expectedName)) {
-                            newUrls.add(url);
-                            continue;
-                        }
-
-                        fileService.renameFile(oldFileName, expectedName);
-                        String newUrl = fileService.getFileUrl(expectedName);
-                        renamedUrls.put(url, newUrl);
-                        newUrls.add(newUrl);
-                        changed = true;
-                    } catch (Exception e) {
-                        newUrls.add(url);
+                        fileService.renameFile(temps[i], oldNames[i]);
+                    } catch (Exception ignored) {
+                        // 되돌리기까지 실패하면 임시 이름에 남는다(로그 대신 URL 은 원본 유지).
                     }
-                } else {
                     newUrls.add(url);
                 }
             }
