@@ -7,9 +7,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.example.demo.entity.Category;
 
 public interface CategoryRepository extends JpaRepository<Category, String> {
+    // 기존 호출부/테스트 호환용
     List<Category> findByLevel(String level);
+
+    List<Category> findByLevelOrderBySortOrderAscIdAsc(String level);
 
     List<Category> findByParentId(String parentId);
 
-    List<Category> findAllByOrderBySortOrderAsc();
+    List<Category> findAllByOrderBySortOrderAscIdAsc();
 }
