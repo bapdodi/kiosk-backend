@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -25,11 +26,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.example.demo.config.SecurityConfig;
 import com.example.demo.entity.Category;
 import com.example.demo.repository.CategoryRepository;
+import com.example.demo.service.CategoryService;
 import com.example.demo.service.CustomUserDetailsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @WebMvcTest(CategoryController.class)
-@Import(SecurityConfig.class) // SecurityConfig를 명시적으로 Import
+// @WebMvcTest 는 @Service 를 스캔하지 않는다. CategoryService 를 함께 올려
+// 실제 정렬/순서 보존 로직이 mock 리포지토리 위에서 그대로 검증되게 한다.
+@Import({ SecurityConfig.class, CategoryService.class })
 public class CategoryControllerTest {
 
     @Autowired
@@ -53,7 +57,7 @@ public class CategoryControllerTest {
         Category category2 = Category.builder().id("2").name("양식").build();
         List<Category> categories = Arrays.asList(category1, category2);
 
-        given(categoryRepository.findAll()).willReturn(categories);
+        given(categoryRepository.findAllByOrderBySortOrderAscIdAsc()).willReturn(categories);
 
         // when & then
         mockMvc.perform(get("/api/categories"))
@@ -72,7 +76,7 @@ public class CategoryControllerTest {
         Category category = Category.builder().id("1").name("메인").level("main").build();
         List<Category> categories = Arrays.asList(category);
 
-        given(categoryRepository.findByLevel(level)).willReturn(categories);
+        given(categoryRepository.findByLevelOrderBySortOrderAscIdAsc(level)).willReturn(categories);
 
         // when & then
         mockMvc.perform(get("/api/categories/level/{level}", level))
@@ -129,5 +133,27 @@ public class CategoryControllerTest {
                 .andExpect(status().isOk());
 
         verify(categoryRepository).deleteById(categoryId);
+    }
+
+    @Test
+    @DisplayName("이름만 수정하면 sortOrder 가 유지된다")
+    @WithMockUser(roles = "ADMIN")
+    void updateCategory_keepsSortOrder() throws Exception {
+        // given: 서버에는 sortOrder=5 로 저장된 카테고리가 있고
+        Category stored = Category.builder().id("1").name("한식").level("main").sortOrder(5).build();
+        given(categoryRepository.findById("1")).willReturn(java.util.Optional.of(stored));
+        given(categoryRepository.save(any(Category.class)))
+                .willAnswer(inv -> inv.getArgument(0));
+
+        // when: 클라이언트가 sortOrder 없이 이름만 바꿔 보내면
+        mockMvc.perform(put("/api/categories/admin/{id}", "1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"id\":\"1\",\"name\":\"한식당\",\"level\":\"main\",\"parentId\":null}")
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                        .csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("한식당"))
+                // then: 순서는 0 으로 초기화되지 않고 그대로 5 여야 한다
+                .andExpect(jsonPath("$.sortOrder").value(5));
     }
 }

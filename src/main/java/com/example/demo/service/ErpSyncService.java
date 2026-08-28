@@ -26,14 +26,18 @@ public class ErpSyncService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
 
+    private final CategoryService categoryService;
+
     public ErpSyncService(@Qualifier("erpJdbcTemplate") JdbcTemplate erpJdbcTemplate,
             @Qualifier("jdbcTemplate") JdbcTemplate primaryJdbcTemplate,
             ProductRepository productRepository,
-            CategoryRepository categoryRepository) {
+            CategoryRepository categoryRepository,
+            CategoryService categoryService) {
         this.erpJdbcTemplate = erpJdbcTemplate;
         this.primaryJdbcTemplate = primaryJdbcTemplate;
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
+        this.categoryService = categoryService;
     }
 
     @Transactional
@@ -273,13 +277,14 @@ public class ErpSyncService {
             return;
         }
 
-        category = Category.builder()
+        // saveCategory 를 거쳐야 같은 그룹의 max(sortOrder)+1 을 부여받는다.
+        // repository.save 를 직접 부르면 sortOrder 가 NULL 로 들어가 정렬이 깨진다.
+        category = categoryService.saveCategory(Category.builder()
                 .id(id)
                 .name(name)
                 .level(level)
                 .parentId(parentId)
-                .build();
-        categoryRepository.save(category);
+                .build());
         log.info("Created category: id={}, name={}, level={}, parent={}", category.getId(), category.getName(),
                 category.getLevel(), category.getParentId());
     }
