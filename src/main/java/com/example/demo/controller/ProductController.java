@@ -44,10 +44,11 @@ public class ProductController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @PostMapping("/admin")
-    public Product createProduct(@RequestBody Product product) {
-        return productService.createProduct(product);
-    }
+    // 상품은 ERP 동기화로만 등록한다. 수동 생성 API는 의도적으로 비활성화한다.
+    // @PostMapping("/admin")
+    // public Product createProduct(@RequestBody Product product) {
+    //     return productService.createProduct(product);
+    // }
 
     @PutMapping("/admin/{id}")
     public ResponseEntity<Product> updateProduct(@PathVariable("id") Long id, @RequestBody Product productDetails) {
