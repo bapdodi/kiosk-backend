@@ -1,7 +1,9 @@
 package com.example.demo.service;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,6 +22,9 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @Slf4j
 public class ErpSyncService {
+
+    private static final String ERP_ITEM_QUERY = "SELECT CODE, ITEM, GYU, OUTA, OUTB, OUTC, PARTCODE, MIDCODE, SMALLCODE, JEGO "
+            + "FROM [ITEM] WHERE CODE >= 100 ORDER BY CODE";
 
     private final JdbcTemplate erpJdbcTemplate;
     private final JdbcTemplate primaryJdbcTemplate;
@@ -42,6 +47,25 @@ public class ErpSyncService {
 
     @Transactional
     public List<Product> syncProducts() {
+        return syncProducts(null);
+    }
+
+    /** ERP 상품을 상품 단위로 미리 보여준다. syncKey 는 선택 반영 시 해당 ERP 상품 묶음을 식별한다. */
+    public List<ErpProductPreview> previewProducts() {
+        List<ErpProductPreview> previews = new java.util.ArrayList<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : groupedErpItems().entrySet()) {
+            List<Map<String, Object>> rows = entry.getValue();
+            Product existing = findExistingProduct(rows, entry.getKey());
+            previews.add(new ErpProductPreview(
+                    syncKey(rows),
+                    existing == null ? entry.getKey() : existing.getName(),
+                    existing != null));
+        }
+        return previews;
+    }
+
+    @Transactional
+    public List<Product> syncProducts(Set<String> selectedSyncKeys) {
         log.info("Starting ERP product synchronization...");
         List<Product> syncedProducts = new java.util.ArrayList<>();
 
@@ -68,21 +92,14 @@ public class ErpSyncService {
 
         // 2. Get Items from ITEM table
         // Fetch GYU (Specification/규격) if available
-        String itemQuery = "SELECT CODE, ITEM, GYU, OUTA, OUTB, OUTC, PARTCODE, MIDCODE, SMALLCODE, JEGO FROM [ITEM] WHERE CODE >= 100";
-        List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(itemQuery);
-
-        // Grouping items by name manually to process them properly
-        java.util.Map<String, List<Map<String, Object>>> groupedItems = new java.util.HashMap<>();
-        for (Map<String, Object> itemRow : erpItems) {
-            String name = normalizeName((String) itemRow.get("ITEM"));
-            if (name == null || name.isEmpty())
-                continue;
-            groupedItems.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(itemRow);
-        }
+        Map<String, List<Map<String, Object>>> groupedItems = groupedErpItems();
 
         for (java.util.Map.Entry<String, List<Map<String, Object>>> entry : groupedItems.entrySet()) {
             String name = entry.getKey();
             List<Map<String, Object>> rows = entry.getValue();
+            if (selectedSyncKeys != null && !selectedSyncKeys.contains(syncKey(rows))) {
+                continue;
+            }
 
             // Sub-group by SPEC/Price to identify actual selectable options
             // Even if prices are same, if SPEC differs, it should be an option.
@@ -229,6 +246,23 @@ public class ErpSyncService {
         return savedProducts;
     }
 
+    private Map<String, List<Map<String, Object>>> groupedErpItems() {
+        List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(ERP_ITEM_QUERY);
+        Map<String, List<Map<String, Object>>> groupedItems = new LinkedHashMap<>();
+        for (Map<String, Object> itemRow : erpItems) {
+            String name = normalizeName((String) itemRow.get("ITEM"));
+            if (name == null || name.isEmpty()) continue;
+            groupedItems.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(itemRow);
+        }
+        return groupedItems;
+    }
+
+    private String syncKey(List<Map<String, Object>> rows) {
+        return String.valueOf(rows.get(0).get("CODE"));
+    }
+
+    public record ErpProductPreview(String syncKey, String name, boolean existing) {}
+
     // @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000)
     @Transactional
     public void syncStockRealtime() {
@@ -289,9 +323,19 @@ public class ErpSyncService {
                 category.getLevel(), category.getParentId());
     }
 
-    @Transactional
+    @Transactional("erpTransactionManager")
     public void sendOrderToErp(Order order) {
         log.info("Sending order #{} to ERP...", order.getId());
+
+        Integer delivered = erpJdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM KIOSK_ORDER_RECEIPT WHERE ORDER_ID = ?", Integer.class, order.getId());
+        if (delivered != null && delivered > 0) {
+            log.info("Order #{} was already delivered to ERP", order.getId());
+            return;
+        }
+        erpJdbcTemplate.update(
+                "INSERT INTO KIOSK_ORDER_RECEIPT (ORDER_ID, CREATED_AT) VALUES (?, SYSDATETIME())",
+                order.getId());
 
         String sujuDateStr = order.getTimestamp()
                 .format(java.time.format.DateTimeFormatter.ofPattern("yy.MM.dd"));
@@ -309,16 +353,9 @@ public class ErpSyncService {
         long orderChargedTotal = 0;
 
         for (com.example.demo.entity.OrderItem item : order.getItems()) {
-            try {
                 // If erpCode is missing, we can't sync it properly
                 if (item.getErpCode() == null || item.getErpCode().isEmpty()) {
-                    log.warn("OrderItem {} has no ERP code. Skipping ERP sync for this item.", item.getName());
-                    // ERP 전송 불가 품목은 소비자가(finalPrice)를 실청구가로 간주해 합계에 반영한다.
-                    int fp = item.getFinalPrice() != null ? item.getFinalPrice() : 0;
-                    int q = item.getQuantity() != null ? item.getQuantity() : 1;
-                    item.setChargedPrice(fp);
-                    orderChargedTotal += (long) fp * q;
-                    continue;
+                    throw new IllegalStateException("Order item has no ERP code: " + item.getName());
                 }
 
                 String custCode = order.getErpCustomerCode() != null && !order.getErpCustomerCode().isEmpty()
@@ -402,9 +439,6 @@ public class ErpSyncService {
                 );
 
                 log.info("Synced item {} ({}) to ERP SUJU", item.getName(), item.getErpCode());
-            } catch (Exception e) {
-                log.error("Failed to sync item {} to ERP: {}", item.getName(), e.getMessage());
-            }
         }
 
         // 주문 총액을 실청구가(거래처 DANGA 반영) 기준으로 갱신. 관리 엔티티라 트랜잭션 커밋 시 반영된다.
