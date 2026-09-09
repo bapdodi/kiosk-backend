@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,6 +14,7 @@ import com.example.demo.repository.OrderRepository;
 import com.example.demo.repository.ProductRepository;
 import com.example.demo.repository.ErpOrderOutboxRepository;
 import com.example.demo.entity.ErpOrderOutbox;
+import com.example.demo.event.OrderCreatedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,6 +27,7 @@ public class OrderService {
     private final ErpSyncService erpSyncService;
     private final JdbcTemplate jdbcTemplate;
     private final ErpOrderOutboxRepository erpOrderOutboxRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public List<Order> getAllOrders() {
         return orderRepository.findAll();
@@ -67,6 +70,10 @@ public class OrderService {
         Order savedOrder = orderRepository.save(order);
         orderRepository.flush();
         erpOrderOutboxRepository.save(new ErpOrderOutbox(savedOrder.getId()));
+
+        // 커밋된 뒤에만 관리자 화면으로 나가야 하므로 리스너 쪽에서 AFTER_COMMIT 으로 받는다.
+        // 멱등 재요청으로 기존 주문을 돌려준 경우에는 여기까지 오지 않아 중복 알림이 없다.
+        eventPublisher.publishEvent(new OrderCreatedEvent(savedOrder.getId(), savedOrder.getCustomerName()));
 
         return savedOrder;
     }
