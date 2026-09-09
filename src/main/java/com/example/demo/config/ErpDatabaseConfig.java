@@ -7,6 +7,8 @@ import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @Configuration
 public class ErpDatabaseConfig {
@@ -37,5 +39,11 @@ public class ErpDatabaseConfig {
             throw new RuntimeException("Failed to create ERP DataSource");
         }
         return new JdbcTemplate(ds);
+    }
+
+    @Bean(name = "erpTransactionManager")
+    public PlatformTransactionManager erpTransactionManager(
+            @org.springframework.beans.factory.annotation.Qualifier("erpDataSource") DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
     }
 }

@@ -6,10 +6,13 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.example.demo.entity.Order;
 import com.example.demo.repository.OrderRepository;
 import com.example.demo.repository.ProductRepository;
+import com.example.demo.repository.ErpOrderOutboxRepository;
+import com.example.demo.entity.ErpOrderOutbox;
 
 import lombok.RequiredArgsConstructor;
 
@@ -20,13 +23,29 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final ErpSyncService erpSyncService;
+    private final JdbcTemplate jdbcTemplate;
+    private final ErpOrderOutboxRepository erpOrderOutboxRepository;
 
     public List<Order> getAllOrders() {
         return orderRepository.findAll();
     }
 
     @Transactional
-    public Order createOrder(Order order) {
+    public Order createOrder(Order order, String requestId) {
+        if (requestId != null && !requestId.isBlank()) {
+            String normalizedRequestId = requestId.trim();
+            if (normalizedRequestId.length() > 64) {
+                throw new IllegalArgumentException("Idempotency-Key is too long");
+            }
+            // The transaction-scoped lock closes the concurrent duplicate-request race.
+            jdbcTemplate.queryForObject("select pg_advisory_xact_lock(hashtextextended(?, 0))",
+                    Object.class, normalizedRequestId);
+            Optional<Order> existing = orderRepository.findByRequestId(normalizedRequestId);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+            order.setRequestId(normalizedRequestId);
+        }
         order.setTimestamp(LocalDateTime.now());
         if (order.getStatus() == null) {
             order.setStatus("pending");
@@ -46,12 +65,8 @@ public class OrderService {
         }
 
         Order savedOrder = orderRepository.save(order);
-
-        try {
-            erpSyncService.sendOrderToErp(savedOrder);
-        } catch (Exception e) {
-            System.err.println("ERP order sync failed: " + e.getMessage());
-        }
+        orderRepository.flush();
+        erpOrderOutboxRepository.save(new ErpOrderOutbox(savedOrder.getId()));
 
         return savedOrder;
     }

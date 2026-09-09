@@ -13,6 +13,6 @@ WORKDIR /app
 # 디스크에서 찾지 못해(404) 옵션 사진이 깨진다.
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
-COPY --from=build /app/build/libs/*.jar app.jar
+COPY --from=build /app/build/libs/demo-0.0.1-SNAPSHOT.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8", "-jar", "app.jar"]
