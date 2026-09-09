@@ -118,7 +118,7 @@ public class DataInitializer {
      * ("erp-10-0-0" < "erp-2-0-0") 관리자가 정한 순서와 무관하게 화면이 흔들린다.
      *
      * 그룹(level + parent_id)별로 "지금 화면에 보이는 순서" 그대로 0..n-1 을 다시 매긴다.
-     * 정렬 기준은 조회 쿼리(findAllByOrderBySortOrderAscIdAsc)와 동일하게
+     * 정렬 기준은 상품 조회 쿼리와 동일하게
      * (sort_order ASC NULLS LAST, id ASC) 라서 보이는 순서는 바뀌지 않는다.
      * 동점/NULL 이 하나도 없으면 아무것도 하지 않아 멱등하다.
      */

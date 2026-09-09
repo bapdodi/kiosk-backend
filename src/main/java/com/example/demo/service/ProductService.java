@@ -2,6 +2,8 @@ package com.example.demo.service;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,12 +28,12 @@ public class ProductService {
     private final ChannelSyncService channelSyncService;
 
     public List<Product> getAllProducts() {
-        return productRepository.findAllByOrderBySortOrderAscIdAsc();
+        return productRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc();
     }
 
     public Page<Product> getAllProductsPaged(String mainCategory, String subCategory, Pageable pageable) {
         if (mainCategory == null || mainCategory.isEmpty()) {
-            return productRepository.findAllByOrderBySortOrderAscIdAsc(pageable);
+            return productRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc(pageable);
         } else if (subCategory == null || subCategory.isEmpty() || subCategory.equals("all")) {
             return productRepository.findByCategoryMain(mainCategory, pageable);
         } else {
@@ -40,7 +42,7 @@ public class ProductService {
     }
 
     public Optional<Product> getProductById(Long id) {
-        return productRepository.findById(id);
+        return productRepository.findByIdAndDeletedAtIsNull(id);
     }
 
     @Transactional
@@ -237,12 +239,19 @@ public class ProductService {
 
     @Transactional
     public void deleteProducts(List<Long> ids) {
-        // 채널에 등록된 상품은 삭제 대신 판매중지로 전환(모든 채널, best-effort, 실패해도 키오스크 삭제는 진행)
+        // 외부 판매 채널은 즉시 판매중지하고, 키오스크 상품은 30일간 휴지통에 보존한다.
+        Instant now = Instant.now();
         for (Long id : ids) {
             channelSyncService.suspendEverywhere(id);
         }
-        List<Product> productsToDelete = productRepository.findAllById(ids);
-        productRepository.deleteAll(productsToDelete);
+        List<Product> productsToDelete = productRepository.findAllById(ids).stream()
+                .filter(product -> product.getDeletedAt() == null)
+                .toList();
+        productsToDelete.forEach(product -> {
+            product.setDeletedAt(now);
+            product.setDeletedBy("admin");
+        });
+        productRepository.saveAll(productsToDelete);
     }
 
     @Transactional
@@ -266,13 +275,46 @@ public class ProductService {
 
     @Transactional
     public boolean deleteProduct(Long id) {
-        return productRepository.findById(id)
+        return productRepository.findByIdAndDeletedAtIsNull(id)
                 .map(product -> {
-                    // 채널 등록 상품은 삭제 대신 판매중지(best-effort)
                     channelSyncService.suspendEverywhere(id);
-                    productRepository.delete(product);
+                    product.setDeletedAt(Instant.now());
+                    product.setDeletedBy("admin");
+                    productRepository.save(product);
                     return true;
                 })
                 .orElse(false);
+    }
+
+    public List<Product> getDeletedProducts() {
+        return productRepository.findAllByDeletedAtIsNotNullOrderByDeletedAtDesc();
+    }
+
+    @Transactional
+    public Optional<Product> restoreProduct(Long id) {
+        return productRepository.findByIdAndDeletedAtIsNotNull(id)
+                .map(product -> {
+                    product.setDeletedAt(null);
+                    product.setDeletedBy(null);
+                    return productRepository.save(product);
+                });
+    }
+
+    @Transactional
+    public PermanentDeleteResult permanentlyDeleteProduct(Long id) {
+        Optional<Product> found = productRepository.findByIdAndDeletedAtIsNotNull(id);
+        if (found.isEmpty()) {
+            return PermanentDeleteResult.NOT_FOUND;
+        }
+        Product product = found.get();
+        if (product.getDeletedAt().isAfter(Instant.now().minus(Duration.ofDays(30)))) {
+            return PermanentDeleteResult.TOO_EARLY;
+        }
+        productRepository.delete(product);
+        return PermanentDeleteResult.DELETED;
+    }
+
+    public enum PermanentDeleteResult {
+        DELETED, NOT_FOUND, TOO_EARLY
     }
 }

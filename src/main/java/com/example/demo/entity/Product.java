@@ -1,6 +1,7 @@
 package com.example.demo.entity;
 
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -147,4 +148,14 @@ public class Product {
     @Column(nullable = false, length = 255)
     @Builder.Default
     private String sortOrder = "80000000";
+
+    /**
+     * 삭제 즉시 행을 지우지 않고 휴지통에 보관한다. null 이면 판매 중인 상품이다.
+     * 상품 ID와 옵션·사진 연결을 유지하므로 실수로 삭제해도 온전히 복원할 수 있다.
+     */
+    @Column
+    private Instant deletedAt;
+
+    @Column(length = 100)
+    private String deletedBy;
 }

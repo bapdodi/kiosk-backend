@@ -72,6 +72,27 @@ public class ProductController {
         return ResponseEntity.ok().build();
     }
 
+    @GetMapping("/admin/trash")
+    public List<Product> getTrash() {
+        return productService.getDeletedProducts();
+    }
+
+    @PostMapping("/admin/{id}/restore")
+    public ResponseEntity<Product> restoreProduct(@PathVariable("id") Long id) {
+        return productService.restoreProduct(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/admin/{id}/permanent")
+    public ResponseEntity<Void> permanentlyDeleteProduct(@PathVariable("id") Long id) {
+        return switch (productService.permanentlyDeleteProduct(id)) {
+            case DELETED -> ResponseEntity.noContent().build();
+            case NOT_FOUND -> ResponseEntity.notFound().build();
+            case TOO_EARLY -> ResponseEntity.status(409).build();
+        };
+    }
+
     @PutMapping("/admin/bulk-update")
     public ResponseEntity<Void> updateProducts(@RequestBody List<Product> products) {
         productService.updateProducts(products);
