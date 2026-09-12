@@ -71,6 +71,9 @@ erp:
     staging-db: ${ERP_BAK_STAGING_DB:DR_ERP_STAGING}
     upload-dir: ${ERP_BAK_UPLOAD_DIR:/var/opt/mssql/import}
     mssql-dir: ${ERP_BAK_MSSQL_DIR:/var/opt/mssql/import}
+    # 업로드 조각 크기. 운영 도메인 앞단의 Cloudflare 가 요청 본문을 100MB 로 막아
+    # 수백 MB .bak 을 한 번에 못 보내므로 나눠서 올린다(기본 64MB).
+    chunk-size: ${ERP_BAK_CHUNK_SIZE:67108864}
 
 # 동시구매 추천. ERP 거래이력(ILxx)을 야간에 집계해 reco_item_pair 에 적재한다.
 recommendation:
