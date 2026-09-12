@@ -26,6 +26,7 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final FileService fileService;
     private final ChannelSyncService channelSyncService;
+    private final ProductCatalogCache productCatalogCache;
 
     public List<Product> getAllProducts() {
         return productRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc();
@@ -47,6 +48,7 @@ public class ProductService {
 
     @Transactional
     public Product createProduct(Product product) {
+        productCatalogCache.invalidate();
         if (product.getOptionGroups() != null) {
             for (int i = 0; i < product.getOptionGroups().size(); i++) {
                 product.getOptionGroups().get(i).setProduct(product);
@@ -68,6 +70,7 @@ public class ProductService {
 
     @Transactional
     public Optional<Product> updateProduct(Long id, Product productDetails) {
+        productCatalogCache.invalidate();
         return productRepository.findById(id)
                 .map(product -> {
                     product.setName(productDetails.getName());
@@ -239,6 +242,7 @@ public class ProductService {
 
     @Transactional
     public void deleteProducts(List<Long> ids) {
+        productCatalogCache.invalidate();
         // 외부 판매 채널은 즉시 판매중지하고, 키오스크 상품은 30일간 휴지통에 보존한다.
         Instant now = Instant.now();
         for (Long id : ids) {
@@ -256,6 +260,7 @@ public class ProductService {
 
     @Transactional
     public void updateProducts(List<Product> products) {
+        productCatalogCache.invalidate();
         for (Product productDetails : products) {
             updateProduct(productDetails.getId(), productDetails);
         }
@@ -263,6 +268,7 @@ public class ProductService {
 
     @Transactional
     public void updateProductOrders(List<Product> products) {
+        productCatalogCache.invalidate();
         Map<Long, String> orderMap = products.stream()
                 .collect(java.util.stream.Collectors.toMap(Product::getId, Product::getSortOrder));
         List<Product> existing = productRepository.findAllById(orderMap.keySet());
@@ -275,6 +281,7 @@ public class ProductService {
 
     @Transactional
     public boolean deleteProduct(Long id) {
+        productCatalogCache.invalidate();
         return productRepository.findByIdAndDeletedAtIsNull(id)
                 .map(product -> {
                     channelSyncService.suspendEverywhere(id);
@@ -292,6 +299,7 @@ public class ProductService {
 
     @Transactional
     public Optional<Product> restoreProduct(Long id) {
+        productCatalogCache.invalidate();
         return productRepository.findByIdAndDeletedAtIsNotNull(id)
                 .map(product -> {
                     product.setDeletedAt(null);
@@ -302,6 +310,7 @@ public class ProductService {
 
     @Transactional
     public PermanentDeleteResult permanentlyDeleteProduct(Long id) {
+        productCatalogCache.invalidate();
         Optional<Product> found = productRepository.findByIdAndDeletedAtIsNotNull(id);
         if (found.isEmpty()) {
             return PermanentDeleteResult.NOT_FOUND;

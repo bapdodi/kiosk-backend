@@ -32,17 +32,20 @@ public class ErpSyncService {
     private final CategoryRepository categoryRepository;
 
     private final CategoryService categoryService;
+    private final ProductCatalogCache productCatalogCache;
 
     public ErpSyncService(@Qualifier("erpJdbcTemplate") JdbcTemplate erpJdbcTemplate,
             @Qualifier("jdbcTemplate") JdbcTemplate primaryJdbcTemplate,
             ProductRepository productRepository,
             CategoryRepository categoryRepository,
-            CategoryService categoryService) {
+            CategoryService categoryService,
+            ProductCatalogCache productCatalogCache) {
         this.erpJdbcTemplate = erpJdbcTemplate;
         this.primaryJdbcTemplate = primaryJdbcTemplate;
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.categoryService = categoryService;
+        this.productCatalogCache = productCatalogCache;
     }
 
     @Transactional
@@ -66,6 +69,7 @@ public class ErpSyncService {
 
     @Transactional
     public List<Product> syncProducts(Set<String> selectedSyncKeys) {
+        productCatalogCache.invalidate();
         log.info("Starting ERP product synchronization...");
         List<Product> syncedProducts = new java.util.ArrayList<>();
 
@@ -266,6 +270,7 @@ public class ErpSyncService {
     // @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000)
     @Transactional
     public void syncStockRealtime() {
+        productCatalogCache.invalidate();
         try {
             String stockQuery = "SELECT CODE, JEGO FROM ITEM WHERE CODE >= 100";
             List<Map<String, Object>> erpStocks = erpJdbcTemplate.queryForList(stockQuery);

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.demo.entity.Product;
+import com.example.demo.service.ProductCatalogCache;
 import com.example.demo.service.ProductService;
 
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 public class ProductController {
 
     private final ProductService productService;
+    private final ProductCatalogCache productCatalogCache;
 
     @GetMapping
     public Page<Product> getAllProducts(
@@ -35,6 +38,15 @@ public class ProductController {
             @RequestParam(name = "subCategory", required = false) String subCategory,
             @PageableDefault(size = 50, sort = "sortOrder", direction = Sort.Direction.ASC) Pageable pageable) {
         return productService.getAllProductsPaged(mainCategory, subCategory, pageable);
+    }
+
+    /**
+     * 전체 상품을 한 번에 내려준다. 상품이 1천 건 남짓이라 화면에서 카테고리·검색을 모두
+     * 처리할 수 있고, 응답은 캐싱돼 있어 매번 DB 를 다시 읽지 않는다.
+     */
+    @GetMapping(value = "/all", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> getAllProductsAtOnce() {
+        return ResponseEntity.ok(productCatalogCache.getCatalogJson());
     }
 
     @GetMapping("/{id}")
