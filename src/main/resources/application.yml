@@ -59,6 +59,14 @@ erp:
     username: ${ERP_DATASOURCE_USERNAME:${ERP_DB_USERNAME:sa}}
     password: ${ERP_DATASOURCE_PASSWORD:${ERP_DB_PASSWORD:Erp_Local_2026!}}
 
+# 동시구매 추천. ERP 거래이력(ILxx)을 야간에 집계해 reco_item_pair 에 적재한다.
+recommendation:
+  years: 2                # 집계 대상 연도 수 (2 = 올해 + 작년)
+  min-co-count: 3         # 이 횟수 미만 동시구매는 우연으로 보고 버린다
+  max-per-item: 20        # 상품당 보관할 추천 후보 상한
+  cache-ttl-ms: 300000    # 메모리 스냅샷 수명
+  cron: "0 30 3 * * *"    # 야간 재집계 시각
+
 # 네이버 커머스API(스마트스토어) 연동. 값은 backend/.env 로 주입한다. (미설정 시 연동 기능만 비활성)
 naver:
   commerce:
