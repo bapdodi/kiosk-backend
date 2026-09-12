@@ -5,6 +5,11 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:admin}
     password: ${SPRING_DATASOURCE_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
+  servlet:
+    multipart:
+      # ERP 백업(.bak)은 수백 MB 라 기본 1MB 제한으로는 업로드가 막힌다.
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:2GB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:2GB}
   jpa:
     hibernate:
       ddl-auto: update
@@ -58,6 +63,14 @@ erp:
     url: ${ERP_DATASOURCE_URL:${ERP_DB_URL:jdbc:sqlserver://localhost:1433;databaseName=DR_ERP;trustServerCertificate=true}}
     username: ${ERP_DATASOURCE_USERNAME:${ERP_DB_USERNAME:sa}}
     password: ${ERP_DATASOURCE_PASSWORD:${ERP_DB_PASSWORD:Erp_Local_2026!}}
+  # 관리자 화면의 ERP 백업(.bak) 반영 기능.
+  # RESTORE 는 SQL Server 자기 파일시스템의 파일만 읽어서, 백엔드가 MSSQL 데이터 볼륨을 같이 물고
+  # import/ 하위에 .bak 을 놓는다. 그래서 두 값이 같은 경로다(mssql 컨테이너는 손대지 않아도 된다).
+  # 호스트에서 gradle 로 띄울 때만 upload-dir 을 각자의 실제 경로로 덮어쓴다.
+  bak-import:
+    staging-db: ${ERP_BAK_STAGING_DB:DR_ERP_STAGING}
+    upload-dir: ${ERP_BAK_UPLOAD_DIR:/var/opt/mssql/import}
+    mssql-dir: ${ERP_BAK_MSSQL_DIR:/var/opt/mssql/import}
 
 # 동시구매 추천. ERP 거래이력(ILxx)을 야간에 집계해 reco_item_pair 에 적재한다.
 recommendation:

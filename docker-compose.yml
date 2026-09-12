@@ -41,6 +41,10 @@ services:
     volumes:
       # 기존 이미지 마이그레이션 원본. 마이그레이션 완료 후에는 제거해도 됨.
       - kiosk_uploads:/app/uploads
+      # 관리자 화면에서 올린 ERP 백업(.bak) 을 놓는 곳. RESTORE 는 SQL Server 자기 파일시스템의
+      # 파일만 읽어서, mssql 의 데이터 볼륨을 그대로 물려 import/ 하위에만 쓴다.
+      # (mssql 쪽 마운트는 건드리지 않으므로 이 기능 때문에 DB 컨테이너를 재생성할 필요가 없다.)
+      - mssql_data:/var/opt/mssql
 
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest

@@ -41,6 +41,25 @@ public class ErpDatabaseConfig {
         return new JdbcTemplate(ds);
     }
 
+    /**
+     * RESTORE DATABASE 는 복원 대상 DB 에 연결된 상태에서는 실행할 수 없어 master 연결이 따로 필요하다.
+     * ERP URL 의 databaseName 만 master 로 바꿔 재사용한다.
+     */
+    @Bean(name = "erpMasterDataSource")
+    public DataSource erpMasterDataSource() {
+        return DataSourceBuilder.create()
+                .url(url.replaceAll("(?i)databaseName=[^;]*", "databaseName=master"))
+                .username(username)
+                .password(password)
+                .driverClassName("com.microsoft.sqlserver.jdbc.SQLServerDriver")
+                .build();
+    }
+
+    @Bean(name = "erpMasterJdbcTemplate")
+    public JdbcTemplate erpMasterJdbcTemplate() {
+        return new JdbcTemplate(erpMasterDataSource());
+    }
+
     @Bean(name = "erpTransactionManager")
     public PlatformTransactionManager erpTransactionManager(
             @org.springframework.beans.factory.annotation.Qualifier("erpDataSource") DataSource dataSource) {
