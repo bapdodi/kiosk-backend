@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.time.LocalDateTime;
@@ -15,6 +16,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -45,6 +48,9 @@ public class ErpBakImportService {
     private static final List<String> COMPARED_COLUMNS = List.of(
             "ITEM", "GYU", "OUTA", "OUTB", "OUTC", "PARTCODE", "MIDCODE", "SMALLCODE");
 
+    /** 중간에 끊긴 업로드 조각을 치우는 기준 나이. */
+    private static final long STALE_PART_AGE_MS = 6 * 60 * 60 * 1000L;
+
     private static final String DROP_TEMP_CODES =
             "IF OBJECT_ID('tempdb..#erp_apply_codes') IS NOT NULL DROP TABLE #erp_apply_codes";
 
@@ -57,20 +63,24 @@ public class ErpBakImportService {
     private final String stagingDb;
     private final Path uploadDir;
     private final String mssqlDir;
+    private final int chunkSize;
 
     public ErpBakImportService(
             @Qualifier("erpJdbcTemplate") JdbcTemplate erpJdbcTemplate,
             @Qualifier("erpMasterJdbcTemplate") JdbcTemplate erpMasterJdbcTemplate,
             ErpSyncService erpSyncService,
             @Value("${erp.bak-import.staging-db:DR_ERP_STAGING}") String stagingDb,
-            @Value("${erp.bak-import.upload-dir:/erp-import}") String uploadDir,
-            @Value("${erp.bak-import.mssql-dir:/erp-import}") String mssqlDir) {
+            @Value("${erp.bak-import.upload-dir:/var/opt/mssql/import}") String uploadDir,
+            @Value("${erp.bak-import.mssql-dir:/var/opt/mssql/import}") String mssqlDir,
+            // Cloudflare 무료 플랜의 요청 본문 상한이 100MB 라 그보다 넉넉히 아래로 자른다.
+            @Value("${erp.bak-import.chunk-size:67108864}") int chunkSize) {
         this.erpJdbcTemplate = erpJdbcTemplate;
         this.erpMasterJdbcTemplate = erpMasterJdbcTemplate;
         this.erpSyncService = erpSyncService;
         this.stagingDb = stagingDb;
         this.uploadDir = Paths.get(uploadDir);
         this.mssqlDir = mssqlDir;
+        this.chunkSize = chunkSize;
     }
 
     // ── 응답 타입 ────────────────────────────────────────────────────────────
@@ -88,25 +98,126 @@ public class ErpBakImportService {
 
     public record ApplyResult(int applied, int inserted, int deleted, String backupTable, Integer syncedProducts) {}
 
-    // ── 1. 업로드 + 스테이징 복원 ────────────────────────────────────────────
+    // ── 1. 업로드(청크) + 스테이징 복원 ──────────────────────────────────────
 
-    public StagingStatus stage(MultipartFile file) throws IOException {
-        String original = file.getOriginalFilename();
-        if (original == null || !original.toLowerCase().endsWith(".bak")) {
+    /** 업로드 시작 응답. 클라이언트는 chunkSize 만큼 잘라 순서대로 올린다. */
+    public record UploadSession(String uploadId, int chunkSize) {}
+
+    /** 진행 중인 업로드 하나. 조각을 순서대로 이어붙이므로 다음에 받을 번호와 누적 크기만 들고 있으면 된다. */
+    private static final class UploadState {
+        private final String fileName;
+        private final long totalSize;
+        private final Path path;
+        private int nextIndex;
+        private long received;
+
+        private UploadState(String fileName, long totalSize, Path path) {
+            this.fileName = fileName;
+            this.totalSize = totalSize;
+            this.path = path;
+        }
+    }
+
+    private final Map<String, UploadState> uploads = new ConcurrentHashMap<>();
+
+    public UploadSession beginUpload(String fileName, long totalSize) throws IOException {
+        if (fileName == null || !fileName.toLowerCase().endsWith(".bak")) {
             throw new IllegalArgumentException("MS SQL 백업 파일(.bak)만 올릴 수 있습니다.");
         }
-        Files.createDirectories(uploadDir);
-        Path target = uploadDir.resolve("staging.bak");
-        try (var in = file.getInputStream()) {
-            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+        if (totalSize <= 0) {
+            throw new IllegalArgumentException("파일 크기를 확인할 수 없습니다.");
         }
+        Files.createDirectories(uploadDir);
+        purgeStaleParts();
+
+        String uploadId = UUID.randomUUID().toString();
+        Path part = uploadDir.resolve(uploadId + ".part");
+        Files.deleteIfExists(part);
+        Files.createFile(part);
+        uploads.put(uploadId, new UploadState(fileName, totalSize, part));
+        log.info("ERP 백업 업로드 시작: {} ({} bytes, uploadId={})", fileName, totalSize, uploadId);
+        return new UploadSession(uploadId, chunkSize);
+    }
+
+    /** 조각을 이어붙인다. 번호가 어긋나면 조용히 섞이지 않도록 거절한다. */
+    public void appendChunk(String uploadId, int index, MultipartFile chunk) throws IOException {
+        UploadState state = uploads.get(uploadId);
+        if (state == null) {
+            throw new IllegalStateException("만료되었거나 없는 업로드입니다. 처음부터 다시 올려주세요.");
+        }
+        synchronized (state) {
+            if (index != state.nextIndex) {
+                throw new IllegalStateException(
+                        "조각 순서가 어긋났습니다(기대 " + state.nextIndex + ", 받음 " + index + ").");
+            }
+            if (state.received + chunk.getSize() > state.totalSize) {
+                throw new IllegalStateException("보낸 크기가 처음 알린 파일 크기를 넘었습니다.");
+            }
+            try (var in = chunk.getInputStream();
+                    var out = Files.newOutputStream(state.path, StandardOpenOption.APPEND)) {
+                in.transferTo(out);
+            }
+            state.nextIndex++;
+            state.received += chunk.getSize();
+        }
+    }
+
+    /** 마지막 조각까지 받은 뒤 호출. 크기를 확인하고 제자리로 옮겨 스테이징 DB 로 복원한다. */
+    public StagingStatus finishUpload(String uploadId) throws IOException {
+        UploadState state = uploads.get(uploadId);
+        if (state == null) {
+            throw new IllegalStateException("만료되었거나 없는 업로드입니다. 처음부터 다시 올려주세요.");
+        }
+        if (state.received != state.totalSize) {
+            throw new IllegalStateException(
+                    "파일이 온전하지 않습니다(" + state.received + "/" + state.totalSize + " bytes). 다시 올려주세요.");
+        }
+        Path target = uploadDir.resolve("staging.bak");
+        Files.move(state.path, target, StandardCopyOption.REPLACE_EXISTING);
         // MSSQL 프로세스(uid 10001)가 읽을 수 있어야 한다.
         target.toFile().setReadable(true, false);
-        Files.writeString(uploadDir.resolve("staging.name"), original);
-        log.info("ERP 백업 업로드 완료: {} ({} bytes)", original, file.getSize());
+        Files.writeString(uploadDir.resolve("staging.name"), state.fileName);
+        uploads.remove(uploadId);
+        log.info("ERP 백업 업로드 완료: {} ({} bytes, 조각 {}개)", state.fileName, state.received, state.nextIndex);
 
         restoreStaging(mssqlDir + "/staging.bak");
         return status();
+    }
+
+    public void abortUpload(String uploadId) {
+        UploadState state = uploads.remove(uploadId);
+        if (state != null) {
+            try {
+                Files.deleteIfExists(state.path);
+            } catch (IOException e) {
+                log.warn("업로드 조각 정리 실패: {}", e.getMessage());
+            }
+        }
+    }
+
+    /** 중간에 끊긴 업로드가 디스크를 먹지 않게, 시작할 때 오래된 조각 파일을 치운다. */
+    private void purgeStaleParts() {
+        try (var files = Files.list(uploadDir)) {
+            long cutoff = System.currentTimeMillis() - STALE_PART_AGE_MS;
+            files.filter(p -> p.getFileName().toString().endsWith(".part"))
+                    .filter(p -> {
+                        try {
+                            return Files.getLastModifiedTime(p).toMillis() < cutoff;
+                        } catch (IOException e) {
+                            return false;
+                        }
+                    })
+                    .forEach(p -> {
+                        try {
+                            Files.delete(p);
+                            log.info("오래된 업로드 조각 삭제: {}", p.getFileName());
+                        } catch (IOException e) {
+                            log.warn("업로드 조각 삭제 실패: {}", e.getMessage());
+                        }
+                    });
+        } catch (IOException e) {
+            log.warn("업로드 디렉터리 정리 실패: {}", e.getMessage());
+        }
     }
 
     private void restoreStaging(String diskPath) {
