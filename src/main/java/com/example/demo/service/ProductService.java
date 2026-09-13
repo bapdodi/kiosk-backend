@@ -4,15 +4,19 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.demo.entity.Combination;
 import com.example.demo.entity.Product;
 import com.example.demo.repository.ProductRepository;
 import com.example.demo.service.channel.ChannelSyncService;
@@ -256,6 +260,58 @@ public class ProductService {
             product.setDeletedBy("admin");
         });
         productRepository.saveAll(productsToDelete);
+    }
+
+    /** ERP 에서 사라진 품목 정리 결과. */
+    public record ErpRemovalResult(int trashedProducts, int hiddenOptions) {}
+
+    /**
+     * ERP 에서 빠진 품목코드에 걸린 키오스크 상품을 정리한다.
+     *
+     * 규격별 옵션으로 들어가 있으면 그 옵션만 숨기고, 그렇게 해서 남은 옵션이 하나도 없거나
+     * 상품 자체가 그 코드로 묶여 있으면 상품을 휴지통으로 옮긴다(30일 보존 + 외부 채널 판매중지).
+     */
+    @Transactional
+    public ErpRemovalResult trashByErpCodes(Collection<String> erpCodes) {
+        if (erpCodes == null || erpCodes.isEmpty()) {
+            return new ErpRemovalResult(0, 0);
+        }
+        productCatalogCache.invalidate();
+
+        Set<Product> touched = new LinkedHashSet<>();
+        Set<Long> toTrash = new LinkedHashSet<>();
+        int hiddenOptions = 0;
+
+        for (String erpCode : erpCodes) {
+            productRepository.findByErpCode(erpCode)
+                    .filter(product -> product.getDeletedAt() == null)
+                    .ifPresent(product -> toTrash.add(product.getId()));
+
+            for (Product product : productRepository.findByCombinationErpCode(erpCode)) {
+                for (Combination combination : product.getCombinations()) {
+                    if (erpCode.equals(combination.getErpCode()) && !Boolean.TRUE.equals(combination.getDeleted())) {
+                        combination.setDeleted(true);
+                        hiddenOptions++;
+                    }
+                }
+                touched.add(product);
+            }
+        }
+        productRepository.saveAll(touched);
+
+        // 옵션이 전부 숨겨진 상품은 살아 있어도 팔 수 있는 규격이 없으므로 같이 휴지통으로 보낸다.
+        for (Product product : touched) {
+            if (product.getDeletedAt() != null) continue;
+            boolean anyAlive = product.getCombinations().stream()
+                    .anyMatch(combination -> !Boolean.TRUE.equals(combination.getDeleted()));
+            if (!anyAlive) {
+                toTrash.add(product.getId());
+            }
+        }
+        if (!toTrash.isEmpty()) {
+            deleteProducts(List.copyOf(toTrash));
+        }
+        return new ErpRemovalResult(toTrash.size(), hiddenOptions);
     }
 
     @Transactional

@@ -59,6 +59,7 @@ public class ErpBakImportService {
     private final JdbcTemplate erpJdbcTemplate;
     private final JdbcTemplate erpMasterJdbcTemplate;
     private final ErpSyncService erpSyncService;
+    private final ProductService productService;
 
     private final String stagingDb;
     private final Path uploadDir;
@@ -69,6 +70,7 @@ public class ErpBakImportService {
             @Qualifier("erpJdbcTemplate") JdbcTemplate erpJdbcTemplate,
             @Qualifier("erpMasterJdbcTemplate") JdbcTemplate erpMasterJdbcTemplate,
             ErpSyncService erpSyncService,
+            ProductService productService,
             @Value("${erp.bak-import.staging-db:DR_ERP_STAGING}") String stagingDb,
             @Value("${erp.bak-import.upload-dir:/var/opt/mssql/import}") String uploadDir,
             @Value("${erp.bak-import.mssql-dir:/var/opt/mssql/import}") String mssqlDir,
@@ -77,6 +79,7 @@ public class ErpBakImportService {
         this.erpJdbcTemplate = erpJdbcTemplate;
         this.erpMasterJdbcTemplate = erpMasterJdbcTemplate;
         this.erpSyncService = erpSyncService;
+        this.productService = productService;
         this.stagingDb = stagingDb;
         this.uploadDir = Paths.get(uploadDir);
         this.mssqlDir = mssqlDir;
@@ -96,7 +99,8 @@ public class ErpBakImportService {
     public record DiffResult(List<ItemDiff> added, List<ItemDiff> removed, List<ItemDiff> changed,
                              int prodRows, int stagingRows) {}
 
-    public record ApplyResult(int applied, int inserted, int deleted, String backupTable, Integer syncedProducts) {}
+    public record ApplyResult(int applied, int inserted, int deleted, String backupTable,
+                             Integer syncedProducts, int trashedProducts, int hiddenOptions) {}
 
     // ── 1. 업로드(청크) + 스테이징 복원 ──────────────────────────────────────
 
@@ -296,6 +300,7 @@ public class ErpBakImportService {
         String erpDb = currentErpDb();
         String prod = quote(erpDb) + ".dbo.ITEM";
         String stage = quote(stagingDb) + ".dbo.ITEM";
+
         String cols = COMPARED_COLUMNS.stream().map(this::quote).collect(Collectors.joining(","));
         // 매장 백업본(Korean_Wansung_CI_AS)과 운영 DB 의 collation 이 다르면 교차 DB 문자열 비교가 막힌다.
         // 양쪽을 현재 DB 기본 collation 으로 맞춰 비교한다(nvarchar 라 값 자체는 그대로다).
@@ -383,6 +388,14 @@ public class ErpBakImportService {
         String erpDb = currentErpDb();
         String prod = quote(erpDb) + ".dbo.ITEM";
         String stage = quote(stagingDb) + ".dbo.ITEM";
+
+        // 백업본에 없는 코드는 이번 반영으로 ERP 에서 사라진다. 지우기 전에 미리 추려둔다.
+        Set<Integer> stagingCodes = new LinkedHashSet<>(erpMasterJdbcTemplate.queryForList(
+                "SELECT CODE FROM " + stage + " WHERE CODE >= " + MIN_CODE, Integer.class));
+        List<String> removedCodes = targets.stream()
+                .filter(code -> !stagingCodes.contains(code))
+                .map(String::valueOf)
+                .toList();
         String backupTable = "ITEM_bak_" + LocalDateTime.now().format(BACKUP_SUFFIX);
         List<String> columns = sharedColumns(erpDb);
         String colList = columns.stream().map(this::quote).collect(Collectors.joining(","));
@@ -433,10 +446,18 @@ public class ErpBakImportService {
         });
 
         Integer synced = null;
+        ProductService.ErpRemovalResult removal = new ProductService.ErpRemovalResult(0, 0);
         if (runProductSync) {
             synced = erpSyncService.syncProducts().size();
+            // 동기화는 추가·갱신만 하므로, ERP 에서 빠진 품목은 여기서 따로 내린다.
+            removal = productService.trashByErpCodes(removedCodes);
+            if (removal.trashedProducts() > 0 || removal.hiddenOptions() > 0) {
+                log.info("ERP 에서 사라진 품목 정리: 상품 {}개 휴지통, 옵션 {}개 숨김",
+                        removal.trashedProducts(), removal.hiddenOptions());
+            }
         }
-        return new ApplyResult(targets.size(), counts[1], counts[0], backupTable, synced);
+        return new ApplyResult(targets.size(), counts[1], counts[0], backupTable, synced,
+                removal.trashedProducts(), removal.hiddenOptions());
     }
 
     // ── 4. 정리 ──────────────────────────────────────────────────────────────
