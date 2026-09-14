@@ -30,7 +30,8 @@ public class OrderService {
     private final ApplicationEventPublisher eventPublisher;
 
     public List<Order> getAllOrders() {
-        return orderRepository.findAll();
+        // DB의 기본 반환 순서는 보장되지 않는다. 동시 주문도 안정적으로 보이도록 ID를 보조 정렬로 둔다.
+        return orderRepository.findAllByOrderByTimestampDescIdDesc();
     }
 
     @Transactional
