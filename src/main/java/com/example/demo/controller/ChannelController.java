@@ -98,7 +98,7 @@ public class ChannelController {
 
     /** 전송 요청 본문. combinations 가 null 이면 저장된 조합 그대로 전송한다. */
     public record PushRequest(List<ComboEdit> combinations) {
-        public record ComboEdit(String id, String name, Integer priceC, Integer stock) {
+        public record ComboEdit(String id, String name, Integer priceA, Integer stock) {
         }
 
         List<Combination> toCombinations() {
@@ -108,7 +108,7 @@ public class ChannelController {
             List<Combination> out = new java.util.ArrayList<>();
             for (ComboEdit c : combinations) {
                 out.add(Combination.builder()
-                        .id(c.id()).name(c.name()).priceC(c.priceC()).stock(c.stock()).deleted(false).build());
+                        .id(c.id()).name(c.name()).priceA(c.priceA()).stock(c.stock()).deleted(false).build());
             }
             return out;
         }
