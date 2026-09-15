@@ -153,8 +153,8 @@ public class ChannelSyncService {
             if (!nullSafeEquals(link.getLastSyncedName(), product.getName())) {
                 changes.add(new FieldChange("상품명", link.getLastSyncedName(), product.getName()));
             }
-            if (!nullSafeEquals(link.getLastSyncedPrice(), product.getPriceC())) {
-                changes.add(new FieldChange("가격", String.valueOf(link.getLastSyncedPrice()), String.valueOf(product.getPriceC())));
+            if (!nullSafeEquals(link.getLastSyncedPrice(), product.getPriceA())) {
+                changes.add(new FieldChange("가격", String.valueOf(link.getLastSyncedPrice()), String.valueOf(product.getPriceA())));
             }
             if (!nullSafeEquals(link.getLastSyncedStock(), currentStock)) {
                 changes.add(new FieldChange("재고", String.valueOf(link.getLastSyncedStock()), String.valueOf(currentStock)));
@@ -284,7 +284,7 @@ public class ChannelSyncService {
         }
         link.setNaverStatus(result.status());
         link.setLastSyncedName(product.getName());
-        link.setLastSyncedPrice(product.getPriceC());
+        link.setLastSyncedPrice(product.getPriceA());
         link.setLastSyncedStock(computeEffectiveStock(product));
         if (result.channelImageUrls() != null && !result.channelImageUrls().isEmpty()) {
             link.setChannelImageUrls(writeJson(result.channelImageUrls()));
