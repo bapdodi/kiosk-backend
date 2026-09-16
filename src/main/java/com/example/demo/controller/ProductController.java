@@ -111,13 +111,28 @@ public class ProductController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    /** 휴지통에 함께 보여줄, 조합만 숨겨진 규격 목록. */
+    @GetMapping("/admin/trash/options")
+    public List<ProductService.HiddenOption> getHiddenOptions() {
+        return productService.getHiddenOptions();
+    }
+
+    @PostMapping("/admin/trash/options/{id}/restore")
+    public ResponseEntity<Void> restoreHiddenOption(@PathVariable("id") Long id) {
+        return productService.restoreHiddenOption(id)
+                ? ResponseEntity.ok().build()
+                : ResponseEntity.notFound().build();
+    }
+
+    /**
+     * 영구 삭제는 폐지됐다.
+     *
+     * 휴지통은 되돌릴 수 있는 보관함이라 데이터를 실제로 지우는 경로를 남기지 않는다.
+     * 예전 화면이 캐시된 브라우저에서 호출할 수 있어, 404 대신 410 으로 의도를 분명히 한다.
+     */
     @DeleteMapping("/admin/{id}/permanent")
-    public ResponseEntity<Void> permanentlyDeleteProduct(@PathVariable("id") Long id) {
-        return switch (productService.permanentlyDeleteProduct(id)) {
-            case DELETED -> ResponseEntity.noContent().build();
-            case NOT_FOUND -> ResponseEntity.notFound().build();
-            case TOO_EARLY -> ResponseEntity.status(409).build();
-        };
+    public ResponseEntity<String> permanentlyDeleteProduct(@PathVariable("id") Long id) {
+        return ResponseEntity.status(410).body("영구 삭제 기능은 폐지되었습니다.");
     }
 
     @PutMapping("/admin/bulk-update")

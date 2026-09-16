@@ -196,10 +196,23 @@ public class ErpSyncService {
                 // 기존에는 여기서 규격이 통째로 버려져 규격이 비어 보였다.
                 String singleGyu = (String) rows.get(0).get("GYU");
                 product.setGyu((singleGyu != null && !singleGyu.trim().isEmpty()) ? singleGyu.trim() : null);
-                if (product.getCombinations() != null) {
-                    product.getCombinations().clear();
-                } else {
+                // 규격이 하나로 줄어도 기존 조합을 물리 삭제하지 않는다.
+                // combinations 는 orphanRemoval = true 라서 clear() 가 곧 DB row 삭제였고,
+                // 그렇게 사라진 규격은 휴지통에도 남지 않아 되살릴 방법이 없었다.
+                if (product.getCombinations() == null) {
                     product.setCombinations(new java.util.ArrayList<>());
+                } else {
+                    java.util.List<Combination> kept = new java.util.ArrayList<>();
+                    for (Combination old : product.getCombinations()) {
+                        // 살아남은 코드는 이제 상품 자신의 erpCode 라 조합으로 중복 보관하지 않는다.
+                        if (single.getErpCode() != null && single.getErpCode().equals(old.getErpCode())) {
+                            continue;
+                        }
+                        old.setDeleted(true);
+                        kept.add(old);
+                    }
+                    product.getCombinations().clear();
+                    product.getCombinations().addAll(kept);
                 }
             } else {
                 product.setErpCode(null);
@@ -218,9 +231,20 @@ public class ErpSyncService {
                     }
                 }
 
-                product.getCombinations().clear();
+                // ERP 코드가 없는 조합(대시보드에서 수동으로 만든 옵션)은 ERP 쪽에 짝이 없으므로
+                // 아래 재구성에서 누락되지 않도록 따로 모아 둔다.
+                java.util.List<Combination> manualCombinations = new java.util.ArrayList<>();
+                for (Combination c : product.getCombinations()) {
+                    if (c.getErpCode() == null) {
+                        manualCombinations.add(c);
+                    }
+                }
+
+                java.util.List<Combination> next = new java.util.ArrayList<>();
+                java.util.Set<String> erpCodesNow = new java.util.HashSet<>();
 
                 for (Combination newC : combinations) {
+                    erpCodesNow.add(newC.getErpCode());
                     Combination existing = existingMap.get(newC.getErpCode());
                     if (existing != null) {
                         existing.setName(newC.getName());
@@ -229,11 +253,26 @@ public class ErpSyncService {
                         existing.setPriceB(newC.getPriceB());
                         existing.setStock(newC.getStock());
                         existing.setId(newC.getId());
-                        product.getCombinations().add(existing);
+                        // deleted 는 일부러 건드리지 않는다.
+                        // 관리자가 숨긴 규격을 동기화가 멋대로 되살리지 않기 위함이다.
+                        next.add(existing);
                     } else {
-                        product.getCombinations().add(newC);
+                        next.add(newC);
                     }
                 }
+
+                // ERP 에서 빠진 기존 조합은 지우지 않고 숨김 처리한다.
+                // 예전에는 여기서 re-add 되지 않아 orphanRemoval 로 조용히 물리 삭제됐다.
+                for (Combination old : existingMap.values()) {
+                    if (!erpCodesNow.contains(old.getErpCode())) {
+                        old.setDeleted(true);
+                        next.add(old);
+                    }
+                }
+                next.addAll(manualCombinations);
+
+                product.getCombinations().clear();
+                product.getCombinations().addAll(next);
             }
 
             syncedProducts.add(product);
