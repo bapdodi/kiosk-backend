@@ -18,6 +18,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.example.demo.entity.Order;
 import com.example.demo.service.OrderEventBroadcaster;
 import com.example.demo.service.OrderService;
+import com.example.demo.service.PublicOrderJson;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,6 +30,7 @@ public class OrderController {
 
     private final OrderService orderService;
     private final OrderEventBroadcaster orderEventBroadcaster;
+    private final PublicOrderJson publicOrderJson;
 
     @GetMapping("/admin")
     public List<Order> getAllOrders() {
@@ -44,9 +47,9 @@ public class OrderController {
     }
 
     @PostMapping
-    public Order createOrder(@RequestBody Order order,
+    public JsonNode createOrder(@RequestBody Order order,
             @RequestHeader(value = "Idempotency-Key", required = false) String requestId) {
-        return orderService.createOrder(order, requestId);
+        return publicOrderJson.strip(orderService.createOrder(order, requestId));
     }
 
     @PutMapping("/admin/{id}/status")

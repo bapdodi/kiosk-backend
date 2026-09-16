@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.demo.entity.Product;
 import com.example.demo.service.ProductCatalogCache;
 import com.example.demo.service.ProductService;
+import com.example.demo.service.PublicProductJson;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import lombok.RequiredArgsConstructor;
 
@@ -31,13 +33,20 @@ public class ProductController {
 
     private final ProductService productService;
     private final ProductCatalogCache productCatalogCache;
+    private final PublicProductJson publicProductJson;
 
+    /**
+     * 손님 화면용 조회 API 는 단가를 빼고 내려준다. 화면에서 가격을 감춰도 응답 본문에 남으면
+     * 누구나 그대로 읽을 수 있고, 주문 금액은 서버가 다시 계산하므로 손님 단말에 줄 이유가 없다.
+     * 가격이 필요한 관리자 화면은 아래 /admin 경로(ROLE_ADMIN)를 쓴다.
+     */
     @GetMapping
-    public Page<Product> getAllProducts(
+    public JsonNode getAllProducts(
             @RequestParam(name = "mainCategory", required = false) String mainCategory,
             @RequestParam(name = "subCategory", required = false) String subCategory,
             @PageableDefault(size = 50, sort = "sortOrder", direction = Sort.Direction.ASC) Pageable pageable) {
-        return productService.getAllProductsPaged(mainCategory, subCategory, pageable);
+        Page<Product> page = productService.getAllProductsPaged(mainCategory, subCategory, pageable);
+        return publicProductJson.strip(page);
     }
 
     /**
@@ -46,13 +55,19 @@ public class ProductController {
      */
     @GetMapping(value = "/all", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getAllProductsAtOnce() {
+        return ResponseEntity.ok(productCatalogCache.getPublicCatalogJson());
+    }
+
+    /** 관리자 화면용 전체 상품 목록. 단가를 포함한 원본이라 ROLE_ADMIN 이 필요하다. */
+    @GetMapping(value = "/admin/all", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> getAllProductsForAdmin() {
         return ResponseEntity.ok(productCatalogCache.getCatalogJson());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Product> getProductById(@PathVariable("id") Long id) {
+    public ResponseEntity<JsonNode> getProductById(@PathVariable("id") Long id) {
         return productService.getProductById(id)
-                .map(ResponseEntity::ok)
+                .map(product -> ResponseEntity.ok(publicProductJson.strip(product)))
                 .orElse(ResponseEntity.notFound().build());
     }
 

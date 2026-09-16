@@ -18,10 +18,13 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/api/sync")
 @RequiredArgsConstructor
 public class SyncController {
+    // 경로가 /api/sync/admin/** 인 이유: ERP 상품 DB 를 갱신할 수 있는 API 이므로
+    // (erp, apply) SecurityConfig 의 /api/*/admin/**
+    // 규칙에 걸려야 로그인한 관리자만 부를 수 있다.
 
     private final ErpSyncService erpSyncService;
 
-    @PostMapping("/erp")
+    @PostMapping("/admin/erp")
     public ResponseEntity<?> syncWithErp() {
         try {
             return ResponseEntity.ok(erpSyncService.syncProducts());
@@ -30,7 +33,7 @@ public class SyncController {
         }
     }
 
-    @GetMapping("/erp/preview")
+    @GetMapping("/admin/erp/preview")
     public ResponseEntity<?> previewErpProducts() {
         try {
             return ResponseEntity.ok(erpSyncService.previewProducts());
@@ -39,7 +42,7 @@ public class SyncController {
         }
     }
 
-    @PostMapping("/erp/apply")
+    @PostMapping("/admin/erp/apply")
     public ResponseEntity<?> applySelectedErpProducts(@RequestBody List<String> syncKeys) {
         try {
             return ResponseEntity.ok(erpSyncService.syncProducts(new LinkedHashSet<>(syncKeys)));

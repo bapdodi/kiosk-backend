@@ -31,8 +31,10 @@ public class ProductCatalogCache {
 
     private final ProductRepository productRepository;
     private final ObjectMapper objectMapper;
+    private final PublicProductJson publicProductJson;
 
     private final AtomicReference<String> cachedJson = new AtomicReference<>();
+    private final AtomicReference<String> cachedPublicJson = new AtomicReference<>();
 
     @Transactional(readOnly = true)
     public String getCatalogJson() {
@@ -52,6 +54,20 @@ public class ProductCatalogCache {
     }
 
     /**
+     * 손님 화면용 전체 상품 목록. 단가(A/B/C)를 지운 뒤 그 결과를 따로 캐싱한다.
+     * 관리자 목록과 원본이 같으므로, 걷어내는 비용도 상품이 바뀔 때 한 번만 든다.
+     */
+    @Transactional(readOnly = true)
+    public String getPublicCatalogJson() {
+        String json = cachedPublicJson.get();
+        if (json != null) return json;
+
+        json = publicProductJson.strip(getCatalogJson());
+        cachedPublicJson.set(json);
+        return json;
+    }
+
+    /**
      * 상품이 바뀐 뒤 호출한다.
      *
      * 트랜잭션이 살아 있는 동안 비우면, 아직 커밋되지 않은 변경을 다른 요청이 읽어 캐시를
@@ -63,10 +79,12 @@ public class ProductCatalogCache {
                 @Override
                 public void afterCompletion(int status) {
                     cachedJson.set(null);
+                    cachedPublicJson.set(null);
                 }
             });
             return;
         }
         cachedJson.set(null);
+        cachedPublicJson.set(null);
     }
 }
