@@ -74,7 +74,8 @@ public class OrderService {
 
         Order savedOrder = orderRepository.save(order);
         orderRepository.flush();
-        erpOrderOutboxRepository.save(new ErpOrderOutbox(savedOrder.getId()));
+        // ERP 전송은 접수 시점이 아니라 관리자가 '처리 완료'로 바꿀 때 예약한다.
+        // updateOrderStatus() 참고.
 
         // 커밋된 뒤에만 관리자 화면으로 나가야 하므로 리스너 쪽에서 AFTER_COMMIT 으로 받는다.
         // 멱등 재요청으로 기존 주문을 돌려준 경우에는 여기까지 오지 않아 중복 알림이 없다.
@@ -123,12 +124,26 @@ public class OrderService {
         return 0;
     }
 
+    /**
+     * 주문 상태를 바꾼다.
+     *
+     * '처리 완료'로 넘어가는 순간에만 ERP 전송을 예약한다(아웃박스에 한 행). 실제 전송은
+     * ErpOrderOutboxWorker 가 맡으므로 ERP 가 잠시 죽어 있어도 재시도로 살아난다.
+     * 아웃박스 PK 가 주문 ID 라 완료 → 대기 → 완료 로 오가도 행은 하나뿐이고,
+     * sendOrderToErp() 도 KIOSK_ORDER_RECEIPT 로 이미 보낸 주문을 건너뛰어 중복 전표가 생기지 않는다.
+     */
     @Transactional
     public Optional<Order> updateOrderStatus(Long id, String status) {
         return orderRepository.findById(id)
                 .map(order -> {
-                    order.setStatus(status.replace("\"", ""));
-                    return orderRepository.save(order);
+                    String next = status.replace("\"", "");
+                    boolean becameCompleted = "completed".equals(next) && !"completed".equals(order.getStatus());
+                    order.setStatus(next);
+                    Order saved = orderRepository.save(order);
+                    if (becameCompleted && !erpOrderOutboxRepository.existsById(id)) {
+                        erpOrderOutboxRepository.save(new ErpOrderOutbox(id));
+                    }
+                    return saved;
                 });
     }
 
