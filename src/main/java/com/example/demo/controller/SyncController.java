@@ -33,6 +33,16 @@ public class SyncController {
         }
     }
 
+    /** 거래처(GURAE)만 다시 받아온다. 상품 동기화에도 포함되지만, 단가 등급만 급히 고칠 때 쓴다. */
+    @PostMapping("/admin/erp/customers")
+    public ResponseEntity<?> syncCustomers() {
+        try {
+            return ResponseEntity.ok(java.util.Map.of("synced", erpSyncService.syncCustomers()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error during customer synchronization: " + e.getMessage());
+        }
+    }
+
     @GetMapping("/admin/erp/preview")
     public ResponseEntity<?> previewErpProducts() {
         try {

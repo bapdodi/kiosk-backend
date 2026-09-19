@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import com.example.demo.entity.Order;
 import com.example.demo.entity.OrderItem;
 import com.example.demo.repository.CombinationRepository;
+import com.example.demo.repository.CustomerRepository;
 import com.example.demo.repository.OrderRepository;
 import com.example.demo.repository.ProductRepository;
 import com.example.demo.repository.ErpOrderOutboxRepository;
@@ -19,14 +20,17 @@ import com.example.demo.entity.ErpOrderOutbox;
 import com.example.demo.event.OrderCreatedEvent;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class OrderService {
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final CombinationRepository combinationRepository;
+    private final CustomerRepository customerRepository;
     private final ErpSyncService erpSyncService;
     private final JdbcTemplate jdbcTemplate;
     private final ErpOrderOutboxRepository erpOrderOutboxRepository;
@@ -88,33 +92,48 @@ public class OrderService {
      * 주문 금액을 서버에서 다시 계산한다.
      *
      * 손님 화면에는 단가를 내려주지 않으므로 요청 본문의 금액은 신뢰할 수 없다(비어 있거나 조작됐을 수 있다).
-     * 품목의 ERP 코드로 판매가(priceC)를 직접 찾아 채운다. 복합옵션 상품은 규격마다 코드가 달라
+     * 품목의 ERP 코드로 판매가를 직접 찾아 채운다. 복합옵션 상품은 규격마다 코드가 달라
      * 조합(Combination)을 먼저 보고, 없으면 상품 단위 코드로 찾는다.
      *
-     * 여기서 넣는 값은 소비자가다. 거래처 단가(A/B/C)를 반영한 실청구가는 ERP 전송 때
-     * {@code ErpSyncService} 가 chargedPrice 와 totalAmount 로 다시 덮어쓴다.
+     * 단가는 주문자의 거래처 등급(ERP GURAE.DANGA)을 로컬 사본에서 읽어 A/B/C 중 하나를 고른다.
+     * 예전에는 여기서 소비자가만 넣고 ERP 전송 때 실청구가로 덮어썼는데, 그러면 전송 전(주문 접수 ~
+     * 처리 완료 사이) 주문 화면과 거래명세서가 소비자가로 보였다. ERP 전송 때의 최종 확정은 그대로다.
      */
     private void priceOrder(Order order) {
+        Integer danga = resolveDanga(order.getErpCustomerCode());
         long total = 0;
         for (OrderItem item : order.getItems()) {
-            int unitPrice = resolveUnitPrice(item);
+            int unitPrice = resolveUnitPrice(item, danga);
             item.setFinalPrice(unitPrice);
             total += (long) unitPrice * (item.getQuantity() != null ? item.getQuantity() : 1);
         }
         order.setTotalAmount((int) total);
     }
 
-    private int resolveUnitPrice(OrderItem item) {
+    /** 거래처 단가 등급. 사본에 없으면 null 이고, 이 경우 소비자가로 계산한다. */
+    private Integer resolveDanga(String erpCustomerCode) {
+        if (erpCustomerCode == null || erpCustomerCode.isBlank()) {
+            return null;
+        }
+        return customerRepository.findByErpCode(erpCustomerCode.trim())
+                .map(c -> c.getDanga())
+                .orElseGet(() -> {
+                    log.warn("No local copy of ERP customer {}, pricing at consumer price", erpCustomerCode);
+                    return null;
+                });
+    }
+
+    private int resolveUnitPrice(OrderItem item, Integer danga) {
         String erpCode = item.getErpCode();
         if (erpCode != null && !erpCode.isBlank()) {
             Integer comboPrice = combinationRepository.findFirstByErpCodeAndDeletedFalse(erpCode)
-                    .map(c -> c.getPriceC())
+                    .map(c -> pickTier(danga, c.getPriceA(), c.getPriceB(), c.getPriceC()))
                     .orElse(null);
             if (comboPrice != null) {
                 return comboPrice;
             }
             Integer productPrice = productRepository.findByErpCode(erpCode)
-                    .map(p -> p.getPriceC())
+                    .map(p -> pickTier(danga, p.getPriceA(), p.getPriceB(), p.getPriceC()))
                     .orElse(null);
             if (productPrice != null) {
                 return productPrice;
@@ -122,6 +141,24 @@ public class OrderService {
         }
         // 코드로 못 찾은 품목은 0 으로 둔다. ERP 전송이 성공하면 실청구가로 덮어써진다.
         return 0;
+    }
+
+    /**
+     * DANGA 등급에 맞는 단가를 고른다. ERP 전송(ErpSyncService)의 선택 규칙과 같아야 한다.
+     *
+     * 등급을 못 고르거나 해당 단가가 비어 있으면 소비자가(priceC)로 떨어진다. DANGA=1(매입 거래처)은
+     * 주문 화면 거래처 목록에서 걸러지므로 정상 경로로는 여기 오지 않는다.
+     */
+    private Integer pickTier(Integer danga, Integer priceA, Integer priceB, Integer priceC) {
+        if (danga != null) {
+            if (danga == 2 && priceA != null && priceA > 0) {
+                return priceA;
+            }
+            if (danga == 3 && priceB != null && priceB > 0) {
+                return priceB;
+            }
+        }
+        return priceC;
     }
 
     /**
