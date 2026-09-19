@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import java.time.LocalDateTime;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,14 +23,23 @@ public class ErpOrderOutboxWorker {
     private final OrderRepository orderRepository;
     private final ErpSyncService erpSyncService;
 
+    /**
+     * 재시도 상한. 품목 코드 오류처럼 재시도로 풀리지 않는 건이 5초마다 영원히 재시도되며
+     * 조회 창(10건)을 차지해, 뒤따르는 정상 주문의 전송까지 막는 것을 방지한다.
+     * 상한에 걸린 건은 processedAt 이 비어 있는 채로 남아 조회에서만 빠지므로,
+     * 원인을 고친 뒤 attempts 를 0 으로 되돌리면 다시 전송된다.
+     */
+    @Value("${erp.order-outbox.max-attempts:20}")
+    private int maxAttempts;
+
     @Scheduled(fixedDelayString = "${erp.order-outbox.delay-ms:5000}")
     @Transactional
     public void deliverPendingOrders() {
-        for (ErpOrderOutbox message : outboxRepository.findTop10ByProcessedAtIsNullOrderByCreatedAtAsc()) {
+        for (ErpOrderOutbox message : outboxRepository
+                .findTop10ByProcessedAtIsNullAndAttemptsLessThanOrderByCreatedAtAsc(maxAttempts)) {
             Order order = orderRepository.findById(message.getOrderId()).orElse(null);
             if (order == null) {
-                message.setAttempts(message.getAttempts() + 1);
-                message.setLastError("Order no longer exists");
+                recordFailure(message, "Order no longer exists");
                 continue;
             }
             try {
@@ -37,11 +47,20 @@ public class ErpOrderOutboxWorker {
                 message.setProcessedAt(LocalDateTime.now());
                 message.setLastError(null);
             } catch (Exception e) {
-                message.setAttempts(message.getAttempts() + 1);
                 String text = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                message.setLastError(text.substring(0, Math.min(text.length(), 255)));
+                recordFailure(message, text);
                 log.error("ERP delivery for order {} failed; it will be retried", order.getId(), e);
             }
+        }
+    }
+
+    private void recordFailure(ErpOrderOutbox message, String error) {
+        int attempts = message.getAttempts() + 1;
+        message.setAttempts(attempts);
+        message.setLastError(error.substring(0, Math.min(error.length(), 255)));
+        if (attempts >= maxAttempts) {
+            log.error("ERP delivery for order {} gave up after {} attempts; manual action required: {}",
+                    message.getOrderId(), attempts, message.getLastError());
         }
     }
 }

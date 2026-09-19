@@ -7,5 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.example.demo.entity.ErpOrderOutbox;
 
 public interface ErpOrderOutboxRepository extends JpaRepository<ErpOrderOutbox, Long> {
-    List<ErpOrderOutbox> findTop10ByProcessedAtIsNullOrderByCreatedAtAsc();
+    List<ErpOrderOutbox> findTop10ByProcessedAtIsNullAndAttemptsLessThanOrderByCreatedAtAsc(int maxAttempts);
 }
