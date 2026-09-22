@@ -55,4 +55,35 @@ docker compose up -d
 | `MINIO_ENDPOINT / ACCESS_KEY / SECRET_KEY / BUCKET` | 이미지 스토리지 |
 | `NAVER_COMMERCE_CLIENT_ID / CLIENT_SECRET` | 네이버커머스 API |
 
+## 재고 입고 관리 (ERP 매입전표 직접 기록)
+
+경영박사(DrNet) 클라이언트는 동시접속 2대 제한이 있어 세 번째 담당자가 ERP 를 띄울 수 없습니다.
+관리자 화면 `/admin/erp-receiving` 에서 입고를 입력하면 백엔드가 ERP 에 매입전표
+(`IL<yy>` `KIND=4`)를 직접 기록합니다. 우리가 넣은 줄은 `BIGO2 = 'KIOSK-IN-<uuid>'` 태그로 구분됩니다.
+
+`ITEM.JEGO`(현재고)는 기본적으로 **건드리지 않습니다**. 운영 데이터에서 기초이월+매입-매출 이
+JEGO 와 일치하지 않아(경영박사가 유지하는 파생값), 임의로 더하면 이중가산되거나 재계산에 덮입니다.
+복제본에서 경영박사 입고 1건의 before/after 를 대조해 확정한 뒤에만 `stock-mode` 를 바꿉니다.
+
+| 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `ERP_RECEIVING_WRITE_ENABLED` | `false` | 1단계는 읽기 전용(검색/미리보기). 검증 후 `true` |
+| `ERP_RECEIVING_STOCK_MODE` | `NONE` | `NONE` \| `JEGO`. JEGO 반영 여부 |
+| `ERP_RECEIVING_DATE_WINDOW_DAYS` | `7` | 입고일자를 오늘 ±N일로 제한(월마감 보호) |
+
+쓰기를 켜기 전에 ERP DB 에 멱등 테이블을 1회 만들어야 합니다(주문 전송의 `KIOSK_ORDER_RECEIPT` 와 같은 역할):
+
+```sql
+CREATE TABLE KIOSK_RECEIPT_VOUCHER (
+    REQUEST_ID   NVARCHAR(64)  NOT NULL PRIMARY KEY,
+    IL_TABLE     NVARCHAR(8)   NOT NULL,
+    dDATE        NVARCHAR(10)  NOT NULL,
+    dNO          INT           NOT NULL,
+    LINES        INT           NOT NULL,
+    CREATED_AT   DATETIME2     NOT NULL,
+    CREATED_BY   NVARCHAR(64)  NULL,
+    CANCELLED_AT DATETIME2     NULL
+);
+```
+
 운영 배포는 `docker-compose.prod.yml` + Watchtower를 사용합니다.

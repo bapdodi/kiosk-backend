@@ -81,6 +81,17 @@ erp:
     # 수백 MB .bak 을 한 번에 못 보내므로 나눠서 올린다(기본 64MB).
     chunk-size: ${ERP_BAK_CHUNK_SIZE:67108864}
 
+  # 관리자 화면의 재고 입고(ERP 매입전표 IL<yy> KIND=4 기록).
+  # 경영박사 동시접속 2대 제한 때문에 세 번째 담당자가 ERP 를 못 써서 만든 경로다.
+  receiving:
+    # 1단계는 읽기 전용(검색/미리보기)만. 복제본에서 경영박사와 대조한 뒤에 켠다.
+    write-enabled: ${ERP_RECEIVING_WRITE_ENABLED:false}
+    # NONE | JEGO. ITEM.JEGO 는 경영박사가 유지하는 파생값이라(기초이월+매입-매출 과 불일치)
+    # 검증 전에 더하면 이중가산된다. 검증 후에만 JEGO 로 바꾼다.
+    stock-mode: ${ERP_RECEIVING_STOCK_MODE:NONE}
+    # 월마감된 과거 전표를 건드리지 않도록 입고일자를 오늘 기준 ±N일로 제한한다.
+    date-window-days: ${ERP_RECEIVING_DATE_WINDOW_DAYS:7}
+
 # 동시구매 추천. ERP 거래이력(ILxx)을 야간에 집계해 reco_item_pair 에 적재한다.
 recommendation:
   years: 2                # 집계 대상 연도 수 (2 = 올해 + 작년)
