@@ -10,9 +10,15 @@ spring:
       # ERP 백업(.bak)은 수백 MB 라 기본 1MB 제한으로는 업로드가 막힌다.
       max-file-size: ${MULTIPART_MAX_FILE_SIZE:2GB}
       max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:2GB}
+  flyway:
+    # 기존 DB(flyway_schema_history 없음)는 V1__baseline 을 실행하지 않고 V1 으로 표시만 한다.
+    baseline-on-migrate: true
+    baseline-version: 1
   jpa:
     hibernate:
-      ddl-auto: update
+      # update 는 DDL 이 실패해도 WARN 만 남기고 기동을 계속해 스키마가 조용히 어긋났다.
+      # 이제 엔티티와 스키마가 다르면 기동이 실패한다. 스키마 변경은 V2__*.sql 부터 추가할 것.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
