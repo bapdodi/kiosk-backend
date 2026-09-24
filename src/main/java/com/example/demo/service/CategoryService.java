@@ -105,7 +105,7 @@ public class CategoryService {
      */
     @Transactional
     public void deleteCategory(String id) {
-        if (ErpSyncService.UNCATEGORIZED_CATEGORY_ID.equals(id)) {
+        if (Category.UNCATEGORIZED_ID.equals(id)) {
             throw new IllegalStateException("미분류는 ERP 에서 새로 들어온 상품이 놓이는 분류라 삭제할 수 없습니다.");
         }
         List<String> subtree = subtreeIds(id);

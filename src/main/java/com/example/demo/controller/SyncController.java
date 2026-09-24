@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.example.demo.service.ErpSyncService;
+import com.example.demo.service.ErpCustomerSync;
+import com.example.demo.service.ErpProductSync;
 
 import lombok.RequiredArgsConstructor;
 
@@ -22,12 +23,13 @@ public class SyncController {
     // (erp, apply) SecurityConfig 의 /api/*/admin/**
     // 규칙에 걸려야 로그인한 관리자만 부를 수 있다.
 
-    private final ErpSyncService erpSyncService;
+    private final ErpProductSync erpProductSync;
+    private final ErpCustomerSync erpCustomerSync;
 
     @PostMapping("/admin/erp")
     public ResponseEntity<?> syncWithErp() {
         try {
-            return ResponseEntity.ok(erpSyncService.syncProducts());
+            return ResponseEntity.ok(erpProductSync.syncProducts());
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Error during synchronization: " + e.getMessage());
         }
@@ -37,7 +39,7 @@ public class SyncController {
     @PostMapping("/admin/erp/customers")
     public ResponseEntity<?> syncCustomers() {
         try {
-            return ResponseEntity.ok(java.util.Map.of("synced", erpSyncService.syncCustomers()));
+            return ResponseEntity.ok(java.util.Map.of("synced", erpCustomerSync.syncCustomers()));
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Error during customer synchronization: " + e.getMessage());
         }
@@ -46,7 +48,7 @@ public class SyncController {
     @GetMapping("/admin/erp/preview")
     public ResponseEntity<?> previewErpProducts() {
         try {
-            return ResponseEntity.ok(erpSyncService.previewProducts());
+            return ResponseEntity.ok(erpProductSync.previewProducts());
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Error loading ERP products: " + e.getMessage());
         }
@@ -55,7 +57,7 @@ public class SyncController {
     @PostMapping("/admin/erp/apply")
     public ResponseEntity<?> applySelectedErpProducts(@RequestBody List<String> syncKeys) {
         try {
-            return ResponseEntity.ok(erpSyncService.syncProducts(new LinkedHashSet<>(syncKeys)));
+            return ResponseEntity.ok(erpProductSync.syncProducts(new LinkedHashSet<>(syncKeys)));
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Error during ERP synchronization: " + e.getMessage());
         }

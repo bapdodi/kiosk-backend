@@ -45,7 +45,7 @@ public class RecommendationAggregator {
     @Value("${recommendation.max-per-item:20}")
     private int maxPerItem;
 
-    /** ERP 매출 구분. ErpSyncService 가 키오스크 주문을 넣을 때 쓰는 KIND=3(외상매출)과 같은 값이다. */
+    /** ERP 매출 구분. ErpOrderSender 가 키오스크 주문을 넣을 때 쓰는 KIND=3(외상매출)과 같은 값이다. */
     private static final String SALES_KIND = "3";
 
     public RecommendationAggregator(@Qualifier("erpJdbcTemplate") JdbcTemplate erpJdbcTemplate,
@@ -151,7 +151,7 @@ public class RecommendationAggregator {
     }
 
     /**
-     * 전표 = (dDATE, dNO, CUST). ErpSyncService 가 주문 하나를 같은 dNO 로 묶어 넣으므로,
+     * 전표 = (dDATE, dNO, CUST). ErpOrderSender 가 주문 하나를 같은 dNO 로 묶어 넣으므로,
      * 이 조합이 곧 "한 번에 주문한 묶음"이 된다. 같은 전표에서 같은 품목이 여러 줄로 나뉘어도
      * DISTINCT 로 한 번만 세어, 수량 분할이 동시구매 횟수를 부풀리지 않게 한다.
      *
