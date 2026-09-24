@@ -29,4 +29,11 @@ class ErpPriceTierTest {
         assertNull(ErpPriceTier.select(3, 2500, null, 4000));
         assertNull(ErpPriceTier.select(4, 2500, 2700, 0));
     }
+
+    @Test
+    void 등급이_없거나_해당_단가가_비면_주문과_전표_모두_소비자가() {
+        assertEquals(4000, ErpPriceTier.price(null, 2500, 2700, 4000));
+        assertEquals(4000, ErpPriceTier.price(2, 0, 2700, 4000));
+        assertEquals(4000, ErpPriceTier.price(6, 2500, 2700, 4000));
+    }
 }
