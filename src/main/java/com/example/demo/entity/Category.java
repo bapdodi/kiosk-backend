@@ -19,6 +19,12 @@ import lombok.Setter;
 @Builder
 public class Category {
 
+    /**
+     * ERP 에서 새로 들어온 상품이 놓이는 대분류(V2 마이그레이션이 만든다). ERP 분류 카테고리
+     * (erp-N-0-0) 자동 생성을 끈 뒤로 새 상품이 없는 분류에 매달려 화면에서 사라졌었다.
+     */
+    public static final String UNCATEGORIZED_ID = "uncategorized";
+
     @Id
     private String id; // string id like 'pipes', 'pipe_steel'
 

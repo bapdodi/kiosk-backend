@@ -16,7 +16,7 @@ import com.example.demo.entity.OrderItem;
 import com.example.demo.entity.Product;
 import com.example.demo.repository.CustomerRepository;
 import com.example.demo.repository.ProductRepository;
-import com.example.demo.service.ErpSyncService;
+import com.example.demo.service.ErpCustomerSync;
 import com.example.demo.service.OrderService;
 
 /** ERP(MSSQL) 와 상품 DB 가 둘 다 떠 있어야 하므로 KIOSK_DB_IT 를 설정한 로컬에서만 돈다. */
@@ -25,7 +25,7 @@ import com.example.demo.service.OrderService;
 class CustomerPricingIT {
 
     @Autowired
-    ErpSyncService erpSyncService;
+    ErpCustomerSync erpCustomerSync;
 
     @Autowired
     CustomerRepository customerRepository;
@@ -44,7 +44,7 @@ class CustomerPricingIT {
 
     @Test
     void 거래처를_동기화하면_단가등급이_함께_복사된다() {
-        int synced = erpSyncService.syncCustomers();
+        int synced = erpCustomerSync.syncCustomers();
 
         assertThat(synced).isPositive();
         // DANGA 는 거래처마다 다르다. 등급이 하나라도 안 넘어왔다면 매핑이 깨진 것이다.

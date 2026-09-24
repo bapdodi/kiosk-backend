@@ -21,7 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 public class ErpOrderOutboxWorker {
     private final ErpOrderOutboxRepository outboxRepository;
     private final OrderRepository orderRepository;
-    private final ErpSyncService erpSyncService;
+    private final ErpOrderSender erpOrderSender;
 
     /**
      * 재시도 상한. 품목 코드 오류처럼 재시도로 풀리지 않는 건이 5초마다 영원히 재시도되며
@@ -43,7 +43,7 @@ public class ErpOrderOutboxWorker {
                 continue;
             }
             try {
-                erpSyncService.sendOrderToErp(order);
+                erpOrderSender.sendOrderToErp(order);
                 message.setProcessedAt(LocalDateTime.now());
                 message.setLastError(null);
             } catch (Exception e) {

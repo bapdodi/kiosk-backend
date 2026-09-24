@@ -58,7 +58,7 @@ public class ErpBakImportService {
 
     private final JdbcTemplate erpJdbcTemplate;
     private final JdbcTemplate erpMasterJdbcTemplate;
-    private final ErpSyncService erpSyncService;
+    private final ErpProductSync erpProductSync;
     private final ProductService productService;
 
     private final String stagingDb;
@@ -69,7 +69,7 @@ public class ErpBakImportService {
     public ErpBakImportService(
             @Qualifier("erpJdbcTemplate") JdbcTemplate erpJdbcTemplate,
             @Qualifier("erpMasterJdbcTemplate") JdbcTemplate erpMasterJdbcTemplate,
-            ErpSyncService erpSyncService,
+            ErpProductSync erpProductSync,
             ProductService productService,
             @Value("${erp.bak-import.staging-db:DR_ERP_STAGING}") String stagingDb,
             @Value("${erp.bak-import.upload-dir:/var/opt/mssql/import}") String uploadDir,
@@ -78,7 +78,7 @@ public class ErpBakImportService {
             @Value("${erp.bak-import.chunk-size:67108864}") int chunkSize) {
         this.erpJdbcTemplate = erpJdbcTemplate;
         this.erpMasterJdbcTemplate = erpMasterJdbcTemplate;
-        this.erpSyncService = erpSyncService;
+        this.erpProductSync = erpProductSync;
         this.productService = productService;
         this.stagingDb = stagingDb;
         this.uploadDir = Paths.get(uploadDir);
@@ -448,7 +448,7 @@ public class ErpBakImportService {
         Integer synced = null;
         ProductService.ErpRemovalResult removal = new ProductService.ErpRemovalResult(0, 0);
         if (runProductSync) {
-            synced = erpSyncService.syncProducts().size();
+            synced = erpProductSync.syncProducts().size();
             // 동기화는 추가·갱신만 하므로, ERP 에서 빠진 품목은 여기서 따로 내린다.
             removal = productService.trashByErpCodes(removedCodes);
             if (removal.trashedProducts() > 0 || removal.hiddenOptions() > 0) {

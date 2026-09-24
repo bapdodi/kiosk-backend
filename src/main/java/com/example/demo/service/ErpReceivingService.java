@@ -25,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
  *
  * 경영박사(DrNet)는 동시접속 2대 제한이 있어 세 번째 담당자가 ERP 를 띄울 수 없다.
  * 그래서 입고만 이 화면에서 처리하고, ERP 에는 경영박사가 넣는 것과 같은 형태의
- * IL&lt;yy&gt; KIND=4(매입) 전표를 기록한다. 매출 전송(ErpSyncService.sendOrderToErp)과 같은 구조다.
+ * IL&lt;yy&gt; KIND=4(매입) 전표를 기록한다. 매출 전송(ErpOrderSender)과 같은 구조다.
  *
  * ITEM.JEGO(현재고)는 기본적으로 건드리지 않는다. 운영 데이터에서 확인해 보면
  * 기초이월 + 매입 - 매출 이 JEGO 와 일치하지 않는다(품목 103: 12+15-12=15 인데 JEGO=9).

@@ -31,7 +31,6 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final CombinationRepository combinationRepository;
     private final CustomerRepository customerRepository;
-    private final ErpSyncService erpSyncService;
     private final JdbcTemplate jdbcTemplate;
     private final ErpOrderOutboxRepository erpOrderOutboxRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -144,21 +143,14 @@ public class OrderService {
     }
 
     /**
-     * DANGA 등급에 맞는 단가를 고른다. ERP 전송(ErpSyncService)의 선택 규칙과 같아야 한다.
+     * DANGA 등급에 맞는 단가를 고른다({@link ErpPriceTier}, ERP 전송과 같은 규칙).
      *
      * 등급을 못 고르거나 해당 단가가 비어 있으면 소비자가(priceC)로 떨어진다. DANGA=1(매입 거래처)은
      * 주문 화면 거래처 목록에서 걸러지므로 정상 경로로는 여기 오지 않는다.
      */
     private Integer pickTier(Integer danga, Integer priceA, Integer priceB, Integer priceC) {
-        if (danga != null) {
-            if (danga == 2 && priceA != null && priceA > 0) {
-                return priceA;
-            }
-            if (danga == 3 && priceB != null && priceB > 0) {
-                return priceB;
-            }
-        }
-        return priceC;
+        Integer tierPrice = ErpPriceTier.select(danga, priceA, priceB, priceC);
+        return tierPrice != null ? tierPrice : priceC;
     }
 
     /**

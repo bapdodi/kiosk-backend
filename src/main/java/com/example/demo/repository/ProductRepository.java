@@ -6,7 +6,6 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import com.example.demo.entity.Product;
@@ -20,11 +19,6 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("SELECT DISTINCT c.product FROM Combination c WHERE c.erpCode = :erpCode")
     List<Product> findByCombinationErpCode(
             @org.springframework.data.repository.query.Param("erpCode") String erpCode);
-
-    @Modifying
-    @Query("UPDATE Product p SET p.stock = :stock WHERE p.erpCode = :erpCode")
-    void updateStockByErpCode(@org.springframework.data.repository.query.Param("erpCode") String erpCode,
-            @org.springframework.data.repository.query.Param("stock") Integer stock);
 
     List<Product> findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc();
 
