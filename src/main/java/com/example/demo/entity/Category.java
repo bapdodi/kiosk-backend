@@ -34,4 +34,9 @@ public class Category {
     // 신규 행의 기본값은 CategoryService.saveCategory 가 그룹 max+1 로 채운다.
     @Column(columnDefinition = "int default 0")
     private Integer sortOrder;
+
+    // 대분류는 부모가 없다. 빈 문자열이 오면 categories.parent_id FK 가 없는 부모로 보고 거부한다.
+    public void setParentId(String parentId) {
+        this.parentId = parentId == null || parentId.isBlank() ? null : parentId;
+    }
 }

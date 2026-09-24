@@ -2,6 +2,7 @@ package com.example.demo.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -132,7 +133,53 @@ public class CategoryControllerTest {
                         .csrf()))
                 .andExpect(status().isOk());
 
-        verify(categoryRepository).deleteById(categoryId);
+        verify(categoryRepository).deleteAllByIdInBatch(List.of(categoryId));
+    }
+
+    @Test
+    @DisplayName("대분류를 지우면 하위 분류까지 한 번에 지운다")
+    @WithMockUser(roles = "ADMIN")
+    void deleteCategory_deletesSubtree() throws Exception {
+        given(categoryRepository.findByParentIdOrderBySortOrderAscIdAsc("main"))
+                .willReturn(List.of(Category.builder().id("sub").parentId("main").build()));
+        given(categoryRepository.findByParentIdOrderBySortOrderAscIdAsc("sub"))
+                .willReturn(List.of(Category.builder().id("detail").parentId("sub").build()));
+
+        mockMvc.perform(delete("/api/categories/admin/{id}", "main")
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                        .csrf()))
+                .andExpect(status().isOk());
+
+        verify(categoryRepository).deleteAllByIdInBatch(List.of("main", "sub", "detail"));
+    }
+
+    @Test
+    @DisplayName("상품이 연결된 분류는 409 와 이유를 돌려주고 지우지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void deleteCategory_inUse() throws Exception {
+        given(categoryRepository.countProductsUsing(List.of("main"), false)).willReturn(3L);
+        given(categoryRepository.countProductsUsing(List.of("main"), true)).willReturn(1L);
+
+        mockMvc.perform(delete("/api/categories/admin/{id}", "main")
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                        .csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("상품 4개가 연결돼 있습니다 (휴지통 1개 포함)")));
+
+        verify(categoryRepository, never()).deleteAllByIdInBatch(any());
+    }
+
+    @Test
+    @DisplayName("미분류는 삭제할 수 없다")
+    @WithMockUser(roles = "ADMIN")
+    void deleteCategory_uncategorizedIsProtected() throws Exception {
+        mockMvc.perform(delete("/api/categories/admin/{id}", "uncategorized")
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                        .csrf()))
+                .andExpect(status().isConflict());
+
+        verify(categoryRepository, never()).deleteAllByIdInBatch(any());
     }
 
     @Test

@@ -98,8 +98,40 @@ public class CategoryService {
         categoryRepository.saveAll(existing);
     }
 
+    /**
+     * 카테고리를 하위 분류까지 함께 지운다. 예전엔 대분류만 지워져 하위 분류와 상품 분류가
+     * 없는 카테고리를 가리킨 채 남았다(키오스크 화면에서 상품이 사라짐). 이제 DB FK 가 그걸 막으므로,
+     * 지울 범위에 상품이 하나라도 걸려 있으면 이유를 알려 주고 거절한다.
+     */
     @Transactional
     public void deleteCategory(String id) {
-        categoryRepository.deleteById(id);
+        if (ErpSyncService.UNCATEGORIZED_CATEGORY_ID.equals(id)) {
+            throw new IllegalStateException("미분류는 ERP 에서 새로 들어온 상품이 놓이는 분류라 삭제할 수 없습니다.");
+        }
+        List<String> subtree = subtreeIds(id);
+        long live = categoryRepository.countProductsUsing(subtree, false);
+        long trashed = categoryRepository.countProductsUsing(subtree, true);
+        if (live + trashed > 0) {
+            String where = subtree.size() > 1 ? "이 분류와 하위 분류에" : "이 분류에";
+            String trashNote = trashed > 0 ? " (휴지통 " + trashed + "개 포함)" : "";
+            throw new IllegalStateException(where + " 상품 " + (live + trashed) + "개가 연결돼 있습니다" + trashNote
+                    + ". 상품을 다른 분류로 옮긴 뒤 삭제하세요.");
+        }
+        // 한 문장으로 지워야 부모-자식 FK 가 문장 끝에서 한 번에 검사된다.
+        categoryRepository.deleteAllByIdInBatch(subtree);
+    }
+
+    /** id 자신과 모든 하위 카테고리 id. */
+    private List<String> subtreeIds(String id) {
+        List<String> ids = new java.util.ArrayList<>();
+        java.util.Deque<String> queue = new java.util.ArrayDeque<>(List.of(id));
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (ids.contains(current)) continue;
+            ids.add(current);
+            categoryRepository.findByParentIdOrderBySortOrderAscIdAsc(current)
+                    .forEach(child -> queue.add(child.getId()));
+        }
+        return ids;
     }
 }
