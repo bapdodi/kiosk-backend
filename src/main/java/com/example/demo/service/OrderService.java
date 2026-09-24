@@ -142,15 +142,9 @@ public class OrderService {
         return 0;
     }
 
-    /**
-     * DANGA 등급에 맞는 단가를 고른다({@link ErpPriceTier}, ERP 전송과 같은 규칙).
-     *
-     * 등급을 못 고르거나 해당 단가가 비어 있으면 소비자가(priceC)로 떨어진다. DANGA=1(매입 거래처)은
-     * 주문 화면 거래처 목록에서 걸러지므로 정상 경로로는 여기 오지 않는다.
-     */
+    /** DANGA 등급에 맞는 단가. 규칙은 ERP 전송과 같다({@link ErpPriceTier#price}). */
     private Integer pickTier(Integer danga, Integer priceA, Integer priceB, Integer priceC) {
-        Integer tierPrice = ErpPriceTier.select(danga, priceA, priceB, priceC);
-        return tierPrice != null ? tierPrice : priceC;
+        return ErpPriceTier.price(danga, priceA, priceB, priceC);
     }
 
     /**

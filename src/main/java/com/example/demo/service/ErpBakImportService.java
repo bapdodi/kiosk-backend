@@ -448,9 +448,13 @@ public class ErpBakImportService {
         Integer synced = null;
         ProductService.ErpRemovalResult removal = new ProductService.ErpRemovalResult(0, 0);
         if (runProductSync) {
-            synced = erpProductSync.syncProducts().size();
-            // 동기화는 추가·갱신만 하므로, ERP 에서 빠진 품목은 여기서 따로 내린다.
-            removal = productService.trashByErpCodes(removedCodes);
+            ErpProductSync.SyncResult sync = erpProductSync.syncProducts();
+            synced = sync.synced();
+            // 동기화도 ERP 에서 사라진 품목을 내리지만, 한꺼번에 많이 빠지면 안전장치로 멈춘다.
+            // 여기 removedCodes 는 방금 적용한 차이라 확실히 빠진 코드이므로 따로 한 번 더 내린다.
+            ProductService.ErpRemovalResult extra = productService.trashByErpCodes(removedCodes);
+            removal = new ProductService.ErpRemovalResult(
+                    sync.trashedProducts() + extra.trashedProducts(), sync.hiddenOptions() + extra.hiddenOptions());
             if (removal.trashedProducts() > 0 || removal.hiddenOptions() > 0) {
                 log.info("ERP 에서 사라진 품목 정리: 상품 {}개 휴지통, 옵션 {}개 숨김",
                         removal.trashedProducts(), removal.hiddenOptions());
