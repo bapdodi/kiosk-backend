@@ -28,6 +28,21 @@ public class ErpSyncService {
     private static final String ERP_ITEM_QUERY = "SELECT CODE, ITEM, GYU, OUTA, OUTB, OUTC, PARTCODE, MIDCODE, SMALLCODE, JEGO "
             + "FROM [ITEM] WHERE CODE >= 100 ORDER BY CODE";
 
+    /**
+     * ERP 에서 새로 들어온 상품이 놓이는 대분류(V2 마이그레이션이 만든다). ERP 분류 카테고리
+     * (erp-N-0-0) 자동 생성을 끈 뒤로 새 상품이 없는 분류에 매달려 화면에서 사라졌었다.
+     */
+    public static final String UNCATEGORIZED_CATEGORY_ID = "uncategorized";
+
+    /**
+     * ERP 품목이지만 판매 상품이 아닌 비용·회계 항목. 전표에 금액을 싣기 위한 품목이라
+     * 키오스크 상품으로 만들지 않는다. 이미 있던 상품은 V2 마이그레이션이 휴지통으로 보냈다.
+     */
+    static final Set<String> NON_PRODUCT_ITEM_NAMES = Set.of(
+            "부가세", "운반비", "용달비", "택배", "택배비", "화물비", "퀵비용",
+            "할인액", "현금할인", "차액", "공과잡비", "선수금", "선입금", "증권",
+            "배관작업", "전기작업", "절단비용", "배관및펌프철거", "화장실 배관누수공사", "압착기계 임대");
+
     private final JdbcTemplate erpJdbcTemplate;
     private final JdbcTemplate primaryJdbcTemplate;
     private final ProductRepository productRepository;
@@ -177,10 +192,6 @@ public class ErpSyncService {
             Integer basePrice = toInteger(firstRow.get("OUTC"));
             Integer basePriceA = toInteger(firstRow.get("OUTA"));
             Integer basePriceB = toInteger(firstRow.get("OUTB"));
-            Integer part = toInteger(firstRow.get("PARTCODE"));
-            Integer mid = toInteger(firstRow.get("MIDCODE"));
-            String mainCatId = String.format("erp-%d-0-0", part);
-            String subCatId = String.format("erp-%d-%d-0", part, mid);
 
             /*
              * Categories are no longer auto-created during product sync
@@ -197,7 +208,7 @@ public class ErpSyncService {
 
             if (product == null) {
                 java.util.Set<com.example.demo.entity.CategoryRef> erpCategories = new java.util.LinkedHashSet<>();
-                erpCategories.add(new com.example.demo.entity.CategoryRef(mainCatId, subCatId));
+                erpCategories.add(new com.example.demo.entity.CategoryRef(UNCATEGORIZED_CATEGORY_ID, null));
                 product = Product.builder()
                         .name(name)
                         .priceC(basePrice)
@@ -215,14 +226,8 @@ public class ErpSyncService {
                 product.setPriceC(basePrice);
                 product.setPriceA(basePriceA);
                 product.setPriceB(basePriceB);
-                // 대시보드에서 카테고리를 수동 변경하지 않은 상품만 ERP 분류로 갱신한다.
-                if (product.getIsCategoryModified() == null || !product.getIsCategoryModified()) {
-                    if (product.getCategories() == null) {
-                        product.setCategories(new java.util.LinkedHashSet<>());
-                    }
-                    product.getCategories().clear();
-                    product.getCategories().add(new com.example.demo.entity.CategoryRef(mainCatId, subCatId));
-                }
+                // 기존 상품의 분류는 건드리지 않는다. 예전엔 수동 변경 안 한 상품을 매번 erp-N-0-0 으로
+                // 되돌렸는데, 그 카테고리는 더 이상 만들지 않아 상품이 화면에서 사라졌다.
             }
 
             // Consolidate combinations by SPEC
@@ -357,7 +362,7 @@ public class ErpSyncService {
         Map<String, List<Map<String, Object>>> groupedItems = new LinkedHashMap<>();
         for (Map<String, Object> itemRow : erpItems) {
             String name = normalizeName((String) itemRow.get("ITEM"));
-            if (name == null || name.isEmpty()) continue;
+            if (name == null || name.isEmpty() || NON_PRODUCT_ITEM_NAMES.contains(name)) continue;
             groupedItems.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(itemRow);
         }
         return groupedItems;
