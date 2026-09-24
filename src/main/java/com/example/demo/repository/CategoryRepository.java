@@ -1,9 +1,11 @@
 package com.example.demo.repository;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.example.demo.entity.Category;
 
@@ -23,4 +25,11 @@ public interface CategoryRepository extends JpaRepository<Category, String> {
      */
     @Query(value = "SELECT pg_advisory_xact_lock(3417)", nativeQuery = true)
     void lockSortOrderAssignment();
+
+    /** 주어진 카테고리를 대분류나 중분류로 쓰는 상품 수. trashed 가 true 면 휴지통 상품만 센다. */
+    @Query(value = "SELECT COUNT(DISTINCT pc.product_id) FROM product_categories pc"
+            + " JOIN products p ON p.id = pc.product_id"
+            + " WHERE (pc.main_category IN (:ids) OR pc.sub_category IN (:ids))"
+            + " AND (p.deleted_at IS NOT NULL) = :trashed", nativeQuery = true)
+    long countProductsUsing(@Param("ids") Collection<String> ids, @Param("trashed") boolean trashed);
 }

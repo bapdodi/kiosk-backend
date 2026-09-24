@@ -2,11 +2,9 @@ package com.example.demo.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
-import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 /**
  * 상품이 소속된 하나의 (대분류 + 중분류) 쌍.
@@ -15,9 +13,7 @@ import lombok.Setter;
  */
 @Embeddable
 @Getter
-@Setter
 @NoArgsConstructor
-@AllArgsConstructor
 @EqualsAndHashCode
 public class CategoryRef {
 
@@ -26,4 +22,23 @@ public class CategoryRef {
 
     @Column(name = "sub_category")
     private String subCategory;
+
+    public CategoryRef(String mainCategory, String subCategory) {
+        setMainCategory(mainCategory);
+        setSubCategory(subCategory);
+    }
+
+    // 관리자 화면은 "중분류 없음"을 빈 문자열로 보낸다. categories FK 는 '' 를 없는 카테고리로
+    // 보고 저장을 거부하므로 null 로 바꿔 둔다.
+    public void setMainCategory(String mainCategory) {
+        this.mainCategory = blankToNull(mainCategory);
+    }
+
+    public void setSubCategory(String subCategory) {
+        this.subCategory = blankToNull(subCategory);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
 }
