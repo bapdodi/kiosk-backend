@@ -78,7 +78,7 @@ public class ErpReceivingWriter {
                     0, // SA
                     0, // DAECHE
                     0, // EA2
-                    memo, // BIGO (null 불가)
+                    line.getOrDefault("remark", memo), // BIGO - 줄 적요 (null 불가)
                     tag, // BIGO2 - 우리 전표 추적용
                     "", // BIGO3
                     "", // ORDERCODE

@@ -61,8 +61,8 @@ class ErpReceivingServiceTest {
     @Test
     void 미리보기는_공급가와_부가세와_라인번호를_계산한다() {
         Map<String, Object> preview = service.preview(request(List.of(
-                new VoucherLine(375, 10, 3600),
-                new VoucherLine(377, 5, 5376))));
+                new VoucherLine(375, 10, 3600, null),
+                new VoucherLine(377, 5, 5376, null))));
 
         assertEquals(62880L, preview.get("totalAmount"));
         assertEquals(6288L, preview.get("totalVat")); // 라인별 GUM/10 의 합
@@ -79,7 +79,7 @@ class ErpReceivingServiceTest {
 
     @Test
     void 미리보기는_ERP_에_쓰지_않는다() {
-        service.preview(request(List.of(new VoucherLine(375, 1, 100))));
+        service.preview(request(List.of(new VoucherLine(375, 1, 100, null))));
         verify(writer, never()).insertVoucher(anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString(), any(), anyString());
     }
@@ -87,7 +87,7 @@ class ErpReceivingServiceTest {
     @Test
     void 수량이_0이면_거부한다() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> service.preview(request(List.of(new VoucherLine(375, 0, 100)))));
+                () -> service.preview(request(List.of(new VoucherLine(375, 0, 100, null)))));
         assertTrue(e.getMessage().contains("수량"));
     }
 
@@ -99,13 +99,13 @@ class ErpReceivingServiceTest {
     @Test
     void 요청_식별자가_없으면_거부한다() {
         assertThrows(IllegalArgumentException.class, () -> service.preview(
-                new VoucherRequest("  ", LocalDate.now().toString(), 930, "", List.of(new VoucherLine(375, 1, 100)))));
+                new VoucherRequest("  ", LocalDate.now().toString(), 930, "", List.of(new VoucherLine(375, 1, 100, null)))));
     }
 
     @Test
     void 월마감_보호를_위해_오래된_일자는_거부한다() {
         VoucherRequest old = new VoucherRequest("req-1", LocalDate.now().minusDays(30).toString(), 930, "",
-                List.of(new VoucherLine(375, 1, 100)));
+                List.of(new VoucherLine(375, 1, 100, null)));
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> service.preview(old));
         assertTrue(e.getMessage().contains("입고일자"));
     }
@@ -114,7 +114,7 @@ class ErpReceivingServiceTest {
     void 쓰기가_꺼져_있으면_저장을_거부한다() {
         ReflectionTestUtils.setField(service, "writeEnabled", false);
         IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> service.createVoucher(request(List.of(new VoucherLine(375, 1, 100))), "admin"));
+                () -> service.createVoucher(request(List.of(new VoucherLine(375, 1, 100, null))), "admin"));
         assertTrue(e.getMessage().contains("읽기 전용"));
     }
 }

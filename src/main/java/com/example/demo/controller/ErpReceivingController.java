@@ -51,8 +51,22 @@ public class ErpReceivingController {
     }
 
     @GetMapping("/history")
-    public ResponseEntity<?> history() {
-        return handle(erpReceivingService::history);
+    public ResponseEntity<?> history(
+            @RequestParam(value = "from", required = false) String from,
+            @RequestParam(value = "to", required = false) String to,
+            @RequestParam(value = "q", required = false) String q) {
+        return handle(() -> erpReceivingService.erpHistory(from, to, q));
+    }
+
+    @GetMapping("/history/detail")
+    public ResponseEntity<?> erpHistoryDetail(@RequestParam String date, @RequestParam int voucherNo,
+            @RequestParam int vendorCode) {
+        return handle(() -> erpReceivingService.erpHistoryDetail(date, voucherNo, vendorCode));
+    }
+
+    @GetMapping("/history/{id}")
+    public ResponseEntity<?> historyDetail(@PathVariable long id) {
+        return handle(() -> erpReceivingService.historyDetail(id));
     }
 
     /** 쓰기 없이 ERP 에 들어갈 내용만 계산해 보여준다. 1단계에서는 여기까지만 쓴다. */

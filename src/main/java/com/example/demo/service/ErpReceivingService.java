@@ -83,9 +83,23 @@ public class ErpReceivingService {
         }
         String ilTable = ilTableFor(LocalDate.now());
         String like = "%" + keyword + "%";
+        String startsWith = keyword + "%";
         Integer code = parseIntOrNull(keyword);
 
+        // 가나다순으로만 정렬하면 "피비"를 쳤을 때 "가위 피비용..." 이 먼저 올라온다.
+        // 찾는 물건은 보통 친 글자로 시작하므로, 관련도를 먼저 보고 그 안에서 이름순으로 준다.
+        //   0 품목코드 일치 · 1 품명이 그 글자로 시작 · 2 품명에 포함 · 3 규격에만 포함
+        String relevance = "CASE"
+                + (code != null ? " WHEN i.CODE = ? THEN 0" : "")
+                + " WHEN i.ITEM LIKE ? THEN 1"
+                + " WHEN i.ITEM LIKE ? THEN 2"
+                + " ELSE 3 END";
+
         String sql = "SELECT TOP 50 i.CODE, i.ITEM, i.GYU, ISNULL(i.JEGO,0) AS JEGO, i.PARTCODE,"
+                + " LTRIM(RTRIM(ISNULL(i.DANWI,''))) AS DANWI,"
+                // 경영박사 품목 조회 화면과 같은 값들이다(입고가=INPR, 출고A/B/C가=OUTA/OUTB/OUTC).
+                + " ISNULL(i.INPR,0) AS INPR, ISNULL(i.OUTA,0) AS OUTA,"
+                + " ISNULL(i.OUTB,0) AS OUTB, ISNULL(i.OUTC,0) AS OUTC,"
                 + " p.CUST AS lastVendorCode, LTRIM(RTRIM(ISNULL(g.NAME,''))) AS lastVendorName,"
                 + " p.PRICE AS lastPrice, p.dDATE AS lastDate"
                 + " FROM ITEM i"
@@ -95,13 +109,16 @@ public class ErpReceivingService {
                 + " LEFT JOIN GURAE g ON g.CODE = p.CUST"
                 + " WHERE i.CODE >= 100 AND (i.ITEM LIKE ? OR i.GYU LIKE ?"
                 + (code != null ? " OR i.CODE = ?" : "") + ")"
-                + " ORDER BY " + (code != null ? "CASE WHEN i.CODE = ? THEN 0 ELSE 1 END, " : "") + "i.ITEM";
+                + " ORDER BY " + relevance + ", i.ITEM, i.GYU";
 
-        List<Object> args = new ArrayList<>(List.of(like, like));
-        if (code != null) {
-            args.add(code);
-            args.add(code);
-        }
+        List<Object> args = new ArrayList<>();
+        args.add(like);                       // WHERE i.ITEM LIKE
+        args.add(like);                       // WHERE i.GYU LIKE
+        if (code != null) args.add(code);     // WHERE i.CODE =
+        if (code != null) args.add(code);     // ORDER BY CASE WHEN i.CODE =
+        args.add(startsWith);                 // ORDER BY CASE WHEN i.ITEM LIKE '키워드%'
+        args.add(like);                       // ORDER BY CASE WHEN i.ITEM LIKE '%키워드%'
+
         return erpJdbcTemplate.queryForList(sql, args.toArray());
     }
 
@@ -129,8 +146,143 @@ public class ErpReceivingService {
                 "%" + keyword + "%");
     }
 
-    public List<ErpReceiptLog> history() {
-        return receiptLogRepository.findTop100ByOrderByCreatedAtDesc();
+    /** 경영박사 MSSQL의 실제 매입(KIND=4) 전표를 기간별로 조회한다. */
+    public List<Map<String, Object>> erpHistory(String from, String to, String q) {
+        LocalDate fromDate = from == null || from.isBlank() ? LocalDate.now().withDayOfMonth(1) : LocalDate.parse(from);
+        LocalDate toDate = to == null || to.isBlank() ? LocalDate.now() : LocalDate.parse(to);
+        if (fromDate.isAfter(toDate)) throw new IllegalArgumentException("시작일은 종료일보다 늦을 수 없습니다.");
+        if (fromDate.plusYears(2).isBefore(toDate)) throw new IllegalArgumentException("조회 기간은 2년 이내로 선택하세요.");
+        String keyword = q == null ? "" : q.trim();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (int year = fromDate.getYear(); year <= toDate.getYear(); year++) {
+            String table = "IL" + String.format("%02d", year % 100);
+            Integer exists = erpJdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM sys.tables WHERE name = ?", Integer.class, table);
+            if (exists == null || exists == 0) continue;
+            LocalDate partFrom = year == fromDate.getYear() ? fromDate : LocalDate.of(year, 1, 1);
+            LocalDate partTo = year == toDate.getYear() ? toDate : LocalDate.of(year, 12, 31);
+            String searchClause = keyword.isEmpty() ? "" :
+                    " AND (g.NAME LIKE ? OR EXISTS (SELECT 1 FROM " + table + " sx"
+                            + " JOIN ITEM ix ON ix.CODE=sx.ITEMCODE"
+                            + " WHERE sx.KIND=? AND sx.dDATE=l.dDATE AND sx.dNO=l.dNO AND sx.CUST=l.CUST"
+                            + " AND (ix.ITEM LIKE ? OR ix.GYU LIKE ?)))";
+            String sql = "SELECT l.dDATE AS erpDate, l.dNO AS voucherNo, l.CUST AS vendorCode,"
+                            + " LTRIM(RTRIM(ISNULL(g.NAME,''))) AS vendorName, COUNT(*) AS lineCount,"
+                            + " SUM(l.GUM) AS totalAmount, SUM(ISNULL(l.VAT,0)) AS totalVat,"
+                            + " LTRIM(RTRIM(ISNULL(MIN(i.ITEM),''))) AS firstItem"
+                            + " FROM " + table + " l"
+                            + " LEFT JOIN GURAE g ON g.CODE=l.CUST LEFT JOIN ITEM i ON i.CODE=l.ITEMCODE"
+                            + " WHERE l.KIND=? AND l.dDATE BETWEEN ? AND ?" + searchClause
+                            + " GROUP BY l.dDATE,l.dNO,l.CUST,g.NAME ORDER BY l.dDATE DESC,l.dNO DESC";
+            List<Object> args = new ArrayList<>();
+            args.add(ErpReceivingWriter.KIND_PURCHASE);
+            args.add(partFrom.format(ERP_DATE));
+            args.add(partTo.format(ERP_DATE));
+            if (!keyword.isEmpty()) {
+                String like = "%" + keyword + "%";
+                args.add(like);
+                args.add(ErpReceivingWriter.KIND_PURCHASE);
+                args.add(like);
+                args.add(like);
+            }
+            result.addAll(erpJdbcTemplate.queryForList(sql, args.toArray()));
+        }
+
+        // 우리 화면에서 만든 살아 있는 전표만 취소 버튼을 허용한다.
+        Map<String, ErpReceiptLog> local = new LinkedHashMap<>();
+        for (ErpReceiptLog logRow : receiptLogRepository.findByErpDateBetweenOrderByCreatedAtDesc(
+                fromDate.format(ERP_DATE), toDate.format(ERP_DATE))) {
+            local.put(logRow.getErpDate() + "|" + logRow.getVoucherNo() + "|" + logRow.getVendorCode(), logRow);
+        }
+        for (Map<String, Object> row : result) {
+            String key = row.get("erpDate") + "|" + row.get("voucherNo") + "|" + row.get("vendorCode");
+            ErpReceiptLog logRow = local.get(key);
+            row.put("localLogId", logRow != null && "CREATED".equals(logRow.getStatus()) ? logRow.getId() : null);
+            row.put("status", "CREATED");
+        }
+        result.sort((a, b) -> {
+            int dateCompare = String.valueOf(b.get("erpDate")).compareTo(String.valueOf(a.get("erpDate")));
+            if (dateCompare != 0) return dateCompare;
+            return Integer.compare(((Number) b.get("voucherNo")).intValue(), ((Number) a.get("voucherNo")).intValue());
+        });
+        return result;
+    }
+
+    public Map<String, Object> erpHistoryDetail(String date, int voucherNo, int vendorCode) {
+        LocalDate parsed = LocalDate.parse("20" + date.replace('.', '-'));
+        String table = ilTableFor(parsed);
+        List<Map<String, Object>> lines = erpJdbcTemplate.queryForList(
+                "SELECT l.EDITNO AS editNo,l.ITEMCODE AS itemCode,LTRIM(RTRIM(ISNULL(i.ITEM,''))) AS itemName,"
+                        + " LTRIM(RTRIM(ISNULL(i.GYU,''))) AS gyu,LTRIM(RTRIM(ISNULL(i.DANWI,''))) AS danwi,"
+                        + " l.EA AS ea,l.PRICE AS price,l.GUM AS gum,ISNULL(l.VAT,0) AS vat,"
+                        + " LTRIM(RTRIM(ISNULL(l.BIGO,''))) AS remark"
+                        + " FROM " + table + " l LEFT JOIN ITEM i ON i.CODE=l.ITEMCODE"
+                        + " WHERE l.KIND=? AND l.dDATE=? AND l.dNO=? AND l.CUST=? ORDER BY l.EDITNO",
+                ErpReceivingWriter.KIND_PURCHASE, date, voucherNo, vendorCode);
+        if (lines.isEmpty()) throw new IllegalArgumentException("ERP 전표를 찾을 수 없습니다.");
+        String vendorName = vendorName(vendorCode);
+        long amount = lines.stream().mapToLong(line -> ((Number) line.get("gum")).longValue()).sum();
+        long vat = lines.stream().mapToLong(line -> ((Number) line.get("vat")).longValue()).sum();
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("erpDate", date); detail.put("ilTable", table); detail.put("voucherNo", voucherNo);
+        detail.put("vendorCode", vendorCode); detail.put("vendorName", vendorName);
+        detail.put("status", "CREATED"); detail.put("totalAmount", amount); detail.put("totalVat", vat);
+        detail.put("lines", lines);
+        return detail;
+    }
+
+    /** 이 화면에서 등록한 전표의 머리와 실제 ERP 품목 행을 상세 조회한다. */
+    public Map<String, Object> historyDetail(long id) {
+        ErpReceiptLog logRow = receiptLogRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("입고 이력을 찾을 수 없습니다: " + id));
+
+        List<Map<String, Object>> lines = erpJdbcTemplate.queryForList(
+                "SELECT l.EDITNO AS editNo, l.ITEMCODE AS itemCode,"
+                        + " LTRIM(RTRIM(ISNULL(i.ITEM,''))) AS itemName,"
+                        + " LTRIM(RTRIM(ISNULL(i.GYU,''))) AS gyu,"
+                        + " LTRIM(RTRIM(ISNULL(i.DANWI,''))) AS danwi,"
+                        + " l.EA AS ea, l.PRICE AS price, l.GUM AS gum,"
+                        + " ISNULL(l.VAT,0) AS vat, LTRIM(RTRIM(ISNULL(l.BIGO,''))) AS remark"
+                        + " FROM " + logRow.getIlTable() + " l LEFT JOIN ITEM i ON i.CODE = l.ITEMCODE"
+                        + " WHERE l.dDATE = ? AND l.dNO = ? AND l.KIND = ? AND l.CUST = ?"
+                        + " AND l.BIGO2 = ? ORDER BY l.EDITNO",
+                logRow.getErpDate(), logRow.getVoucherNo(), ErpReceivingWriter.KIND_PURCHASE,
+                Integer.valueOf(logRow.getVendorCode()), TAG_PREFIX + logRow.getRequestId());
+
+        // 취소된 전표는 ERP 행이 이미 지워졌으므로 로컬 보조 이력을 사용한다.
+        if (lines.isEmpty()) {
+            lines = logRow.getLines().stream().map(line -> {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("editNo", line.getEditNo());
+                item.put("itemCode", line.getItemCode());
+                item.put("itemName", line.getItemName());
+                item.put("gyu", "");
+                item.put("danwi", "");
+                item.put("ea", line.getEa());
+                item.put("price", line.getPrice());
+                item.put("gum", line.getGum());
+                item.put("vat", line.getVat());
+                item.put("remark", logRow.getMemo() == null ? "" : logRow.getMemo());
+                return item;
+            }).toList();
+        }
+
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("id", logRow.getId());
+        detail.put("erpDate", logRow.getErpDate());
+        detail.put("ilTable", logRow.getIlTable());
+        detail.put("voucherNo", logRow.getVoucherNo());
+        detail.put("vendorCode", logRow.getVendorCode());
+        detail.put("vendorName", logRow.getVendorName());
+        detail.put("memo", logRow.getMemo());
+        detail.put("status", logRow.getStatus());
+        detail.put("createdBy", logRow.getCreatedBy());
+        detail.put("createdAt", logRow.getCreatedAt());
+        detail.put("totalAmount", logRow.getTotalAmount());
+        detail.put("totalVat", lines.stream().mapToLong(line -> ((Number) line.get("vat")).longValue()).sum());
+        detail.put("lines", lines);
+        return detail;
     }
 
     // ── 미리보기 ────────────────────────────────────────────────────────────
@@ -285,11 +437,16 @@ public class ErpReceivingService {
             row.put("itemCode", itemCode);
             row.put("itemName", String.valueOf(item.get("ITEM")).trim());
             row.put("gyu", String.valueOf(item.getOrDefault("GYU", "")).trim());
+            row.put("danwi", String.valueOf(item.getOrDefault("DANWI", "")).trim());
             row.put("jego", item.get("JEGO"));
             row.put("ea", ea);
             row.put("price", price);
             row.put("gum", gum);
             row.put("vat", vat);
+            // 적요는 줄마다 다를 수 있다(경영박사도 줄 단위로 적는다). 비면 전표 메모를 쓴다.
+            row.put("remark", line.remark() == null || line.remark().isBlank()
+                    ? (request.memo() == null ? "" : request.memo().trim())
+                    : line.remark().trim());
             lines.add(row);
         }
         v.lines = lines;
@@ -316,7 +473,8 @@ public class ErpReceivingService {
 
     private Map<String, Object> findItem(int itemCode) {
         List<Map<String, Object>> rows = erpJdbcTemplate.queryForList(
-                "SELECT CODE, ITEM, GYU, ISNULL(JEGO,0) AS JEGO FROM ITEM WHERE CODE = ?", itemCode);
+                "SELECT CODE, ITEM, GYU, ISNULL(JEGO,0) AS JEGO, LTRIM(RTRIM(ISNULL(DANWI,''))) AS DANWI"
+                        + " FROM ITEM WHERE CODE = ?", itemCode);
         if (rows.isEmpty()) {
             throw new IllegalArgumentException("ERP 에 없는 품목입니다: " + itemCode);
         }
@@ -371,7 +529,7 @@ public class ErpReceivingService {
 
     // ── 요청/내부 타입 ──────────────────────────────────────────────────────
 
-    public record VoucherLine(Integer itemCode, Integer ea, Integer price) {}
+    public record VoucherLine(Integer itemCode, Integer ea, Integer price, String remark) {}
 
     public record VoucherRequest(String clientRequestId, String date, Integer vendorCode, String memo,
             List<VoucherLine> lines) {}
