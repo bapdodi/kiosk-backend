@@ -25,6 +25,7 @@ services:
       ERP_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;databaseName=DR_ERP;trustServerCertificate=true
       ERP_DATASOURCE_USERNAME: sa
       ERP_DATASOURCE_PASSWORD: "1111"
+      VISION_ERP_BRIDGE_TOKEN: ${VISION_ERP_BRIDGE_TOKEN:-}
       # 업로드 이미지 저장소(MinIO). 시크릿은 .env 에서 주입(커밋 금지).
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://192.168.0.90:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-admin}
