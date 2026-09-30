@@ -35,9 +35,24 @@ public class ErpReceivingController {
         return handle(erpReceivingService::status);
     }
 
+    @GetMapping("/company")
+    public ResponseEntity<?> company() {
+        return handle(erpReceivingService::company);
+    }
+
+    @GetMapping("/stock")
+    public ResponseEntity<?> stock() {
+        return handle(erpReceivingService::stockList);
+    }
+
     @GetMapping("/items")
     public ResponseEntity<?> items(@RequestParam("q") String q) {
         return handle(() -> erpReceivingService.searchItems(q));
+    }
+
+    @GetMapping("/reorder")
+    public ResponseEntity<?> reorder() {
+        return handle(erpReceivingService::reorderSuggestions);
     }
 
     @GetMapping("/items/{code}/recent")
@@ -54,14 +69,15 @@ public class ErpReceivingController {
     public ResponseEntity<?> history(
             @RequestParam(value = "from", required = false) String from,
             @RequestParam(value = "to", required = false) String to,
-            @RequestParam(value = "q", required = false) String q) {
-        return handle(() -> erpReceivingService.erpHistory(from, to, q));
+            @RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "kind", defaultValue = "4") int kind) {
+        return handle(() -> erpReceivingService.erpHistory(from, to, q, kind));
     }
 
     @GetMapping("/history/detail")
     public ResponseEntity<?> erpHistoryDetail(@RequestParam String date, @RequestParam int voucherNo,
-            @RequestParam int vendorCode) {
-        return handle(() -> erpReceivingService.erpHistoryDetail(date, voucherNo, vendorCode));
+            @RequestParam int vendorCode, @RequestParam(value = "kind", defaultValue = "4") int kind) {
+        return handle(() -> erpReceivingService.erpHistoryDetail(date, voucherNo, vendorCode, kind));
     }
 
     @GetMapping("/history/{id}")
@@ -73,6 +89,21 @@ public class ErpReceivingController {
     @PostMapping("/preview")
     public ResponseEntity<?> preview(@RequestBody VoucherRequest request) {
         return handle(() -> erpReceivingService.preview(request));
+    }
+
+    @PostMapping("/orders/preview")
+    public ResponseEntity<?> previewOrder(@RequestBody VoucherRequest request) {
+        return handle(() -> erpReceivingService.previewOrder(request));
+    }
+
+    @PostMapping("/orders")
+    public ResponseEntity<?> createOrder(@RequestBody VoucherRequest request, Authentication auth) {
+        return handle(() -> erpReceivingService.createOrder(request, actor(auth)));
+    }
+
+    @PostMapping("/orders/{requestId}/cancel")
+    public ResponseEntity<?> cancelOrder(@PathVariable String requestId) {
+        return handle(() -> erpReceivingService.cancelOrder(requestId));
     }
 
     @PostMapping("/vouchers")

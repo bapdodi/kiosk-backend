@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import com.example.demo.entity.ErpReceiptLog;
 import com.example.demo.entity.ErpReceiptLogLine;
 import com.example.demo.repository.ErpReceiptLogRepository;
+import com.example.demo.util.HangulKeyboard;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -51,6 +52,7 @@ public class ErpReceivingService {
 
     /** 우리가 넣은 전표만 골라내기 위한 BIGO2 태그. 매출 전송의 "KIOSK-" 와 구분된다. */
     private static final String TAG_PREFIX = "KIOSK-IN-";
+    private static final String ORDER_TAG_PREFIX = "KIOSK-ORD-";
 
     private static final DateTimeFormatter ERP_DATE = DateTimeFormatter.ofPattern("yy.MM.dd");
     private static final DateTimeFormatter ERP_YEAR = DateTimeFormatter.ofPattern("yy");
@@ -93,6 +95,18 @@ public class ErpReceivingService {
         if (keyword.isEmpty()) {
             throw new IllegalArgumentException("검색어를 입력하세요.");
         }
+        List<Map<String, Object>> found = searchItemsExact(keyword);
+        // 한영키를 안 누르고 쳤다면("dpfqh") 한글로 바꾼 검색어("엘보")로도 찾아 뒤에 붙인다.
+        if (!HangulKeyboard.looksLikeMistypedHangul(keyword)) return found;
+        String hangul = HangulKeyboard.toHangul(keyword);
+        if (hangul.equals(keyword)) return found;
+        Map<Object, Map<String, Object>> merged = new LinkedHashMap<>();
+        for (Map<String, Object> row : found) merged.put(row.get("CODE"), row);
+        for (Map<String, Object> row : searchItemsExact(hangul)) merged.putIfAbsent(row.get("CODE"), row);
+        return new ArrayList<>(merged.values()).subList(0, Math.min(50, merged.size()));
+    }
+
+    private List<Map<String, Object>> searchItemsExact(String keyword) {
         String ilTable = ilTableFor(LocalDate.now());
         String like = "%" + keyword + "%";
         String startsWith = keyword + "%";
@@ -146,6 +160,204 @@ public class ErpReceivingService {
                 itemCode);
     }
 
+    /**
+     * 발주 추천. 사람이 기준을 넣지 않고 품목별 실제 거래 이력으로 스스로 계산한다(읽기 전용).
+     *
+     * - 하루 판매량: 최근 30/90/365일 평균을 5:3:2 로 섞어 최근 추세에 무게를 둔다.
+     * - 변동: 최근 13주 주간 판매량의 표준편차. 들쭉날쭉한 품목은 안전재고를 더 잡는다.
+     * - 입고까지 걸리는 기간: 그 품목의 발주(KIND=13) 뒤 첫 매입(KIND=4)까지 걸린 날의 중앙값(없으면 5일).
+     * - 발주 주기: 그 품목 매입일 간격의 중앙값(7~45일로 제한, 없으면 14일).
+     * - 이미 넣은 발주: 최근 21일 발주 수량에서 그 뒤 입고된 수량을 뺀 만큼은 곧 들어올 재고로 본다.
+     * - 발주점 = 하루 판매량 × 입고 기간 + 안전재고(95% 서비스 수준). 재고가 발주점 이하면 추천한다.
+     * - 추천 수량 = 하루 판매량 × (입고 기간 + 발주 주기) + 안전재고 - (재고 + 입고 예정).
+     * JEGO 는 경영박사가 유지하는 값이라 읽기만 한다. 음수면 0 으로 보고 표시해 준다.
+     */
+    public Map<String, Object> reorderSuggestions() {
+        final int history = 365;
+        final double z = 1.65;
+        LocalDate today = LocalDate.now();
+        LocalDate from = today.minusDays(history - 1);
+
+        // 판매(KIND=3): 품목별 "며칠 전" 배열
+        Map<Integer, double[]> sales = new java.util.HashMap<>();
+        // 발주(13)/매입(4): 품목별 (날짜, 종류, 거래처, 수량, 단가)
+        Map<Integer, List<Object[]>> flows = new java.util.HashMap<>();
+        for (int year = from.getYear(); year <= today.getYear(); year++) {
+            String table = "IL" + String.format("%02d", year % 100);
+            Integer exists = erpJdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM sys.tables WHERE name = ?", Integer.class, table);
+            if (exists == null || exists == 0) continue;
+            LocalDate partFrom = year == from.getYear() ? from : LocalDate.of(year, 1, 1);
+            LocalDate partTo = year == today.getYear() ? today : LocalDate.of(year, 12, 31);
+            erpJdbcTemplate.query(
+                    "SELECT ITEMCODE, dDATE, KIND, CUST, EA, PRICE FROM " + table
+                            + " WHERE KIND IN (3, 4, 13) AND dDATE BETWEEN ? AND ? AND ITEMCODE >= 100",
+                    rs -> {
+                        int item = rs.getInt("ITEMCODE");
+                        LocalDate d;
+                        try {
+                            d = LocalDate.parse("20" + rs.getString("dDATE").trim().replace('.', '-'));
+                        } catch (Exception e) {
+                            return;
+                        }
+                        int ago = (int) java.time.temporal.ChronoUnit.DAYS.between(d, today);
+                        if (ago < 0 || ago >= history) return;
+                        int kind = rs.getInt("KIND");
+                        double ea = rs.getDouble("EA");
+                        if (kind == 3) {
+                            sales.computeIfAbsent(item, k -> new double[history])[ago] += ea;
+                        } else {
+                            flows.computeIfAbsent(item, k -> new ArrayList<>())
+                                    .add(new Object[] {d, kind, rs.getInt("CUST"), ea, rs.getDouble("PRICE")});
+                        }
+                    },
+                    partFrom.format(ERP_DATE), partTo.format(ERP_DATE));
+        }
+
+        Map<Integer, Map<String, Object>> items = new java.util.HashMap<>();
+        for (Map<String, Object> r : erpJdbcTemplate.queryForList(
+                "SELECT CODE, LTRIM(RTRIM(ITEM)) AS ITEM, LTRIM(RTRIM(ISNULL(GYU,''))) AS GYU,"
+                        + " LTRIM(RTRIM(ISNULL(DANWI,''))) AS DANWI, ISNULL(JEGO,0) AS JEGO, ISNULL(INPR,0) AS INPR"
+                        + " FROM ITEM WHERE CODE >= 100")) {
+            items.put(((Number) r.get("CODE")).intValue(), r);
+        }
+        Map<Integer, String> vendorNames = new java.util.HashMap<>();
+        for (Map<String, Object> r : erpJdbcTemplate.queryForList("SELECT CODE, LTRIM(RTRIM(ISNULL(NAME,''))) AS NAME FROM GURAE")) {
+            vendorNames.put(((Number) r.get("CODE")).intValue(), String.valueOf(r.get("NAME")));
+        }
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map.Entry<Integer, double[]> e : sales.entrySet()) {
+            Map<String, Object> item = items.get(e.getKey());
+            if (item == null) continue;
+            double[] day = e.getValue();
+
+            int saleDays = 0;
+            int lastSale = -1;
+            double s30 = 0, s90 = 0, s365 = 0;
+            for (int i = 0; i < history; i++) {
+                if (day[i] <= 0) continue;
+                saleDays++;
+                if (lastSale < 0) lastSale = i;
+                s365 += day[i];
+                if (i < 90) s90 += day[i];
+                if (i < 30) s30 += day[i];
+            }
+            // 거의 안 팔리거나(연 3일 미만) 석 달 넘게 안 팔린 품목은 추천하지 않는다.
+            if (saleDays < 3 || lastSale > 90) continue;
+            double rate = 0.5 * (s30 / 30) + 0.3 * (s90 / 90) + 0.2 * (s365 / history);
+            if (rate <= 0) continue;
+
+            // 최근 13주 주간 판매량의 표준편차
+            double[] week = new double[13];
+            for (int i = 0; i < 91; i++) week[i / 7] += day[i];
+            double mean = 0;
+            for (double w : week) mean += w;
+            mean /= week.length;
+            double var = 0;
+            for (double w : week) var += (w - mean) * (w - mean);
+            double sigmaWeek = Math.sqrt(var / week.length);
+
+            // 입고 기간(발주→매입)과 발주 주기(매입 간격), 입고 예정, 주 거래처
+            List<Object[]> flow = flows.getOrDefault(e.getKey(), List.of());
+            List<LocalDate> orders = new ArrayList<>();
+            List<LocalDate> buys = new ArrayList<>();
+            Map<Integer, Integer> vendorCount = new java.util.HashMap<>();
+            Map<Integer, Object[]> vendorLast = new java.util.HashMap<>();
+            double open13 = 0, in4 = 0;
+            for (Object[] f : flow) {
+                LocalDate d = (LocalDate) f[0];
+                int kind = (Integer) f[1];
+                boolean recent = d.isAfter(today.minusDays(22));
+                if (kind == 13) {
+                    orders.add(d);
+                    if (recent) open13 += (Double) f[3];
+                } else {
+                    buys.add(d);
+                    if (recent) in4 += (Double) f[3];
+                    int cust = (Integer) f[2];
+                    vendorCount.merge(cust, 1, Integer::sum);
+                    Object[] last = vendorLast.get(cust);
+                    if (last == null || ((LocalDate) last[0]).isBefore(d)) vendorLast.put(cust, f);
+                }
+            }
+            java.util.Collections.sort(buys);
+            List<Integer> leads = new ArrayList<>();
+            for (LocalDate o : orders) {
+                for (LocalDate b : buys) {
+                    if (!b.isBefore(o)) {
+                        long gap = java.time.temporal.ChronoUnit.DAYS.between(o, b);
+                        if (gap <= 45) leads.add((int) gap);
+                        break;
+                    }
+                }
+            }
+            int lead = leads.isEmpty() ? 5 : Math.max(1, Math.min(30, median(leads)));
+            List<Integer> gaps = new ArrayList<>();
+            List<LocalDate> distinctBuys = new ArrayList<>(new java.util.TreeSet<>(buys));
+            for (int i = 1; i < distinctBuys.size(); i++) {
+                gaps.add((int) java.time.temporal.ChronoUnit.DAYS.between(distinctBuys.get(i - 1), distinctBuys.get(i)));
+            }
+            int cycle = gaps.isEmpty() ? 14 : Math.max(7, Math.min(45, median(gaps)));
+            double incoming = Math.max(0, open13 - in4);
+            // 한 번 발주하는 기간(입고 기간 + 발주 주기) 동안 1개도 안 팔릴 만큼 느린 품목은 추천하지 않는다.
+            if (rate * (lead + cycle) < 1) continue;
+
+            double jego = ((Number) item.get("JEGO")).doubleValue();
+            double stock = Math.max(jego, 0) + incoming;
+            double safety = z * sigmaWeek * Math.sqrt(lead / 7.0);
+            double reorderPoint = rate * lead + safety;
+            if (stock > reorderPoint) continue;
+
+            double daysLeft = jego <= 0 ? 0 : jego / rate;
+            int qty = (int) Math.max(1, Math.ceil(rate * (lead + cycle) + safety - stock));
+            int urgency = jego <= 0 ? 0 : (daysLeft < lead ? 1 : 2);
+
+            Integer vendor = vendorCount.entrySet().stream()
+                    .max(java.util.Map.Entry.<Integer, Integer>comparingByValue()).map(java.util.Map.Entry::getKey).orElse(null);
+            Map<String, Object> row = new LinkedHashMap<>(item);
+            row.put("dailyAvg", Math.round(rate * 100) / 100.0);
+            row.put("leadDays", lead);
+            row.put("reorderPoint", (int) Math.ceil(reorderPoint));
+            row.put("daysLeft", Math.round(daysLeft * 10) / 10.0);
+            row.put("incoming", (int) Math.round(incoming));
+            row.put("suggestQty", qty);
+            row.put("urgency", urgency); // 0 품절, 1 긴급(입고 전에 바닥), 2 권장
+            row.put("negativeStock", jego < 0);
+            if (vendor != null) {
+                Object[] last = vendorLast.get(vendor);
+                row.put("lastVendorCode", vendor);
+                row.put("lastVendorName", vendorNames.getOrDefault(vendor, ""));
+                row.put("lastPrice", last == null ? null : last[4]);
+            }
+            rows.add(row);
+        }
+        rows.sort(java.util.Comparator
+                .comparingInt((Map<String, Object> r) -> (Integer) r.get("urgency"))
+                .thenComparingDouble(r -> ((Number) r.get("daysLeft")).doubleValue())
+                .thenComparing(r -> -((Number) r.get("dailyAvg")).doubleValue()));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("from", from.toString());
+        result.put("to", today.toString());
+        result.put("items", rows);
+        return result;
+    }
+
+    private static int median(List<Integer> values) {
+        List<Integer> sorted = new ArrayList<>(values);
+        java.util.Collections.sort(sorted);
+        return sorted.get(sorted.size() / 2);
+    }
+
+    /** 재고 조회용 전체 품목. 검색 없이 처음부터 다 보여 주고 거르는 것은 화면에서 한다(약 5천 건). */
+    public List<Map<String, Object>> stockList() {
+        return erpJdbcTemplate.queryForList(
+                "SELECT CODE, LTRIM(RTRIM(ISNULL(ITEM,''))) AS ITEM, LTRIM(RTRIM(ISNULL(GYU,''))) AS GYU,"
+                        + " LTRIM(RTRIM(ISNULL(DANWI,''))) AS DANWI, ISNULL(JEGO,0) AS JEGO,"
+                        + " ISNULL(INPR,0) AS INPR, ISNULL(OUTA,0) AS OUTA, ISNULL(OUTB,0) AS OUTB"
+                        + " FROM ITEM WHERE CODE >= 100 ORDER BY ITEM, GYU");
+    }
+
     /** 매입 거래처 목록. DANGA=1 이 입고(매입) 거래처다 - 판매 단가표가 없어 주문 화면에서는 제외된다. */
     public List<Map<String, Object>> vendors(String q) {
         String keyword = q == null ? "" : q.trim();
@@ -153,13 +365,45 @@ public class ErpReceivingService {
             return erpJdbcTemplate.queryForList(
                     "SELECT CODE, LTRIM(RTRIM(NAME)) AS NAME FROM GURAE WHERE DANGA = 1 ORDER BY NAME");
         }
-        return erpJdbcTemplate.queryForList(
-                "SELECT TOP 50 CODE, LTRIM(RTRIM(NAME)) AS NAME FROM GURAE WHERE DANGA = 1 AND NAME LIKE ? ORDER BY NAME",
-                "%" + keyword + "%");
+        String sql = "SELECT TOP 50 CODE, LTRIM(RTRIM(NAME)) AS NAME FROM GURAE WHERE DANGA = 1 AND NAME LIKE ? ORDER BY NAME";
+        List<Map<String, Object>> found = erpJdbcTemplate.queryForList(sql, "%" + keyword + "%");
+        if (!HangulKeyboard.looksLikeMistypedHangul(keyword)) return found;
+        Map<Object, Map<String, Object>> merged = new LinkedHashMap<>();
+        for (Map<String, Object> row : found) merged.put(row.get("CODE"), row);
+        for (Map<String, Object> row : erpJdbcTemplate.queryForList(sql, "%" + HangulKeyboard.toHangul(keyword) + "%")) {
+            merged.putIfAbsent(row.get("CODE"), row);
+        }
+        return new ArrayList<>(merged.values()).subList(0, Math.min(50, merged.size()));
     }
 
     /** 경영박사 MSSQL의 실제 매입(KIND=4) 전표를 기간별로 조회한다. */
-    public List<Map<String, Object>> erpHistory(String from, String to, String q) {
+    public List<Map<String, Object>> erpHistory(String from, String to, String q, int kind) {
+        List<Map<String, Object>> found = erpHistoryExact(from, to, q, kind);
+        String keyword = q == null ? "" : q.trim();
+        // 한영키를 안 누르고 친 검색어도 한글로 바꿔 한 번 더 찾는다(품목/거래처 검색과 같은 규칙).
+        if (!HangulKeyboard.looksLikeMistypedHangul(keyword)) return found;
+        Map<String, Map<String, Object>> merged = new LinkedHashMap<>();
+        for (Map<String, Object> row : found) merged.put(historyKey(row), row);
+        for (Map<String, Object> row : erpHistoryExact(from, to, HangulKeyboard.toHangul(keyword), kind)) {
+            merged.putIfAbsent(historyKey(row), row);
+        }
+        List<Map<String, Object>> all = new ArrayList<>(merged.values());
+        all.sort((a, b) -> {
+            int dateCompare = String.valueOf(b.get("erpDate")).compareTo(String.valueOf(a.get("erpDate")));
+            if (dateCompare != 0) return dateCompare;
+            return Integer.compare(((Number) b.get("voucherNo")).intValue(), ((Number) a.get("voucherNo")).intValue());
+        });
+        return all;
+    }
+
+    private String historyKey(Map<String, Object> row) {
+        return row.get("erpDate") + "|" + row.get("voucherNo") + "|" + row.get("vendorCode");
+    }
+
+    private List<Map<String, Object>> erpHistoryExact(String from, String to, String q, int kind) {
+        if (kind != ErpReceivingWriter.KIND_PURCHASE && kind != ErpReceivingWriter.KIND_ORDER) {
+            throw new IllegalArgumentException("조회할 수 없는 전표 종류입니다.");
+        }
         LocalDate fromDate = from == null || from.isBlank() ? LocalDate.now().withDayOfMonth(1) : LocalDate.parse(from);
         LocalDate toDate = to == null || to.isBlank() ? LocalDate.now() : LocalDate.parse(to);
         if (fromDate.isAfter(toDate)) throw new IllegalArgumentException("시작일은 종료일보다 늦을 수 없습니다.");
@@ -182,19 +426,19 @@ public class ErpReceivingService {
             String sql = "SELECT l.dDATE AS erpDate, l.dNO AS voucherNo, l.CUST AS vendorCode,"
                             + " LTRIM(RTRIM(ISNULL(g.NAME,''))) AS vendorName, COUNT(*) AS lineCount,"
                             + " SUM(l.GUM) AS totalAmount, SUM(ISNULL(l.VAT,0)) AS totalVat,"
-                            + " LTRIM(RTRIM(ISNULL(MIN(i.ITEM),''))) AS firstItem"
+                            + " LTRIM(RTRIM(ISNULL(MIN(i.ITEM),''))) AS firstItem, MIN(ISNULL(l.BIGO2,'')) AS tag"
                             + " FROM " + table + " l"
                             + " LEFT JOIN GURAE g ON g.CODE=l.CUST LEFT JOIN ITEM i ON i.CODE=l.ITEMCODE"
                             + " WHERE l.KIND=? AND l.dDATE BETWEEN ? AND ?" + searchClause
                             + " GROUP BY l.dDATE,l.dNO,l.CUST,g.NAME ORDER BY l.dDATE DESC,l.dNO DESC";
             List<Object> args = new ArrayList<>();
-            args.add(ErpReceivingWriter.KIND_PURCHASE);
+            args.add(kind);
             args.add(partFrom.format(ERP_DATE));
             args.add(partTo.format(ERP_DATE));
             if (!keyword.isEmpty()) {
                 String like = "%" + keyword + "%";
                 args.add(like);
-                args.add(ErpReceivingWriter.KIND_PURCHASE);
+                args.add(kind);
                 args.add(like);
                 args.add(like);
             }
@@ -212,6 +456,10 @@ public class ErpReceivingService {
             ErpReceiptLog logRow = local.get(key);
             row.put("localLogId", logRow != null && "CREATED".equals(logRow.getStatus()) ? logRow.getId() : null);
             row.put("status", "CREATED");
+            // 이 화면에서 만든 발주 전표면 취소할 수 있도록 요청 ID 를 알려 준다.
+            String tag = String.valueOf(row.remove("tag"));
+            row.put("orderRequestId", kind == ErpReceivingWriter.KIND_ORDER && tag.startsWith(ORDER_TAG_PREFIX)
+                    ? tag.substring(ORDER_TAG_PREFIX.length()) : null);
         }
         result.sort((a, b) -> {
             int dateCompare = String.valueOf(b.get("erpDate")).compareTo(String.valueOf(a.get("erpDate")));
@@ -221,7 +469,10 @@ public class ErpReceivingService {
         return result;
     }
 
-    public Map<String, Object> erpHistoryDetail(String date, int voucherNo, int vendorCode) {
+    public Map<String, Object> erpHistoryDetail(String date, int voucherNo, int vendorCode, int kind) {
+        if (kind != ErpReceivingWriter.KIND_PURCHASE && kind != ErpReceivingWriter.KIND_ORDER) {
+            throw new IllegalArgumentException("조회할 수 없는 전표 종류입니다.");
+        }
         LocalDate parsed = LocalDate.parse("20" + date.replace('.', '-'));
         String table = ilTableFor(parsed);
         List<Map<String, Object>> lines = erpJdbcTemplate.queryForList(
@@ -231,8 +482,25 @@ public class ErpReceivingService {
                         + " LTRIM(RTRIM(ISNULL(l.BIGO,''))) AS remark"
                         + " FROM " + table + " l LEFT JOIN ITEM i ON i.CODE=l.ITEMCODE"
                         + " WHERE l.KIND=? AND l.dDATE=? AND l.dNO=? AND l.CUST=? ORDER BY l.EDITNO",
-                ErpReceivingWriter.KIND_PURCHASE, date, voucherNo, vendorCode);
+                kind, date, voucherNo, vendorCode);
         if (lines.isEmpty()) throw new IllegalArgumentException("ERP 전표를 찾을 수 없습니다.");
+        if (kind == ErpReceivingWriter.KIND_ORDER) {
+            // 발주 줄은 BIGO 가 단위다. 적요는 우리가 BIGO3 에 넣는다.
+            Map<Integer, Map<String, Object>> extra = new java.util.HashMap<>();
+            for (Map<String, Object> r : erpJdbcTemplate.queryForList(
+                    "SELECT EDITNO, LTRIM(RTRIM(ISNULL(BIGO,''))) AS unit, LTRIM(RTRIM(ISNULL(BIGO3,''))) AS memo"
+                            + " FROM " + table + " WHERE KIND=? AND dDATE=? AND dNO=? AND CUST=?",
+                    kind, date, voucherNo, vendorCode)) {
+                extra.put(((Number) r.get("EDITNO")).intValue(), r);
+            }
+            for (Map<String, Object> line : lines) {
+                Map<String, Object> e = extra.get(((Number) line.get("editNo")).intValue());
+                if (e == null) continue;
+                String unit = String.valueOf(e.get("unit"));
+                if (!unit.isEmpty()) line.put("danwi", unit);
+                line.put("remark", e.get("memo"));
+            }
+        }
         String vendorName = vendorName(vendorCode);
         long amount = lines.stream().mapToLong(line -> ((Number) line.get("gum")).longValue()).sum();
         long vat = lines.stream().mapToLong(line -> ((Number) line.get("vat")).longValue()).sum();
@@ -395,10 +663,113 @@ public class ErpReceivingService {
         return receiptLogRepository.save(row);
     }
 
+    /**
+     * 발주서 머리에 찍을 우리 회사 정보. 경영박사 설정 테이블(sqCFGSV)에서 읽는다.
+     * 같은 테이블에 라이선스/시리얼 값도 있으므로 필요한 항목만 골라서 준다.
+     */
+    public Map<String, Object> company() {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("COMPANY", "name");
+        fields.put("COMPMAN", "ceo");
+        fields.put("COMPNO", "bizNo");
+        fields.put("COMPJUSO", "address");
+        fields.put("COMPUP", "bizType");
+        fields.put("COMPJONG", "bizItem");
+        fields.put("COMPTEL", "tel");
+        fields.put("COMPFAX", "fax");
+        Map<String, Object> out = new LinkedHashMap<>();
+        fields.values().forEach(k -> out.put(k, ""));
+        for (Map<String, Object> row : erpJdbcTemplate.queryForList(
+                "SELECT FIELD, DATA FROM sqCFGSV WHERE FIELD IN (" + String.join(",", java.util.Collections.nCopies(fields.size(), "?")) + ")",
+                fields.keySet().toArray())) {
+            String key = fields.get(String.valueOf(row.get("FIELD")).trim());
+            if (key != null && row.get("DATA") != null) out.put(key, String.valueOf(row.get("DATA")).trim());
+        }
+        return out;
+    }
+
+    // ── 발주(KIND=13) ────────────────────────────────────────────────────────
+
+    /** 발주 미리보기. 입고와 같은 검증/계산을 쓰고 태그만 발주용이다. */
+    public Map<String, Object> previewOrder(VoucherRequest request) {
+        Voucher voucher = build(request, ORDER_TAG_PREFIX);
+        return Map.of(
+                "ilTable", voucher.ilTable,
+                "dDate", voucher.dDate,
+                "dNo", voucher.dNo,
+                "vendorCode", voucher.vendorCode,
+                "vendorName", voucher.vendorName,
+                "totalAmount", voucher.totalAmount,
+                "totalVat", voucher.totalVat,
+                "tag", voucher.tag,
+                "stockMode", "NONE", // 발주는 재고를 움직이지 않는다
+                "lines", voucher.lines);
+    }
+
+    /**
+     * 발주 전표 기록(ERP 거래원장 KIND=13). 입고 입력과 같은 형태로 매입처 하나에 전표 하나다.
+     * 같은 품목을 다른 회사에도 시키려면 매입처를 바꿔 전표를 하나 더 만든다.
+     * 발주는 재고를 바꾸지 않는다 - 물건이 와서 KIND=4 로 입고 처리될 때 반영된다.
+     */
+    public Map<String, Object> createOrder(VoucherRequest request, String actor) {
+        if (!writeEnabled) {
+            throw new IllegalStateException("읽기 전용 모드입니다. 관리자에게 문의하세요. (erp.receiving.write-enabled)");
+        }
+        Voucher voucher = build(request, ORDER_TAG_PREFIX);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("requestId", voucher.requestId);
+        out.put("ilTable", voucher.ilTable);
+        out.put("dDate", voucher.dDate);
+        out.put("vendorName", voucher.vendorName);
+        out.put("lineCount", voucher.lines.size());
+        out.put("totalAmount", voucher.totalAmount);
+
+        // 멱등: 같은 요청을 다시 보내면 이미 저장된 전표를 돌려준다.
+        List<Map<String, Object>> existing = erpJdbcTemplate.queryForList(
+                "SELECT dNO FROM KIOSK_RECEIPT_VOUCHER WHERE REQUEST_ID = ? AND CANCELLED_AT IS NULL", voucher.requestId);
+        if (!existing.isEmpty()) {
+            out.put("dNo", existing.get(0).get("dNO"));
+            out.put("duplicate", true);
+            return out;
+        }
+        int dNo = writer.insertVoucher(ErpReceivingWriter.KIND_ORDER, voucher.requestId, voucher.tag,
+                voucher.ilTable, voucher.dDate, voucher.vendorCode, voucher.memo, voucher.lines, actor);
+        log.info("ERP 발주 전표 저장: {} {} dNO={} 거래처={} {}줄 {}원", voucher.ilTable, voucher.dDate, dNo,
+                voucher.vendorCode, voucher.lines.size(), voucher.totalAmount);
+        out.put("dNo", dNo);
+        out.put("duplicate", false);
+        return out;
+    }
+
+    /** 발주 전표 취소. KIOSK_RECEIPT_VOUCHER 에 남은 우리 전표만, BIGO2 태그가 맞는 줄만 지운다. */
+    public Map<String, Object> cancelOrder(String requestId) {
+        if (!writeEnabled) {
+            throw new IllegalStateException("읽기 전용 모드입니다.");
+        }
+        List<Map<String, Object>> rows = erpJdbcTemplate.queryForList(
+                "SELECT IL_TABLE, dDATE, dNO, LINES, CANCELLED_AT FROM KIOSK_RECEIPT_VOUCHER WHERE REQUEST_ID = ?",
+                requestId);
+        if (rows.isEmpty()) throw new IllegalArgumentException("발주 이력을 찾을 수 없습니다: " + requestId);
+        Map<String, Object> row = rows.get(0);
+        if (row.get("CANCELLED_AT") != null) throw new IllegalStateException("이미 취소된 전표입니다.");
+        String ilTable = String.valueOf(row.get("IL_TABLE"));
+        if (!ilTable.matches("IL\\d{2}")) throw new IllegalStateException("전표 테이블이 올바르지 않습니다.");
+        String dDate = String.valueOf(row.get("dDATE"));
+        checkDateWindow(LocalDate.parse("20" + dDate.replace('.', '-')));
+        writer.deleteVoucher(requestId, ORDER_TAG_PREFIX + requestId, ilTable, dDate,
+                ((Number) row.get("dNO")).intValue(), ((Number) row.get("LINES")).intValue(), List.of());
+        return Map.of("cancelled", true, "requestId", requestId);
+    }
+
     // ── 조립/검증 ───────────────────────────────────────────────────────────
 
     /** 요청을 검증해 실제 INSERT 될 값까지 계산한다. preview 와 저장이 같은 계산을 쓴다. */
     private Voucher build(VoucherRequest request) {
+        return build(request, TAG_PREFIX);
+    }
+
+    private Voucher build(VoucherRequest request, String tagPrefix) {
         if (request == null || request.lines() == null || request.lines().isEmpty()) {
             throw new IllegalArgumentException("입고할 품목이 없습니다.");
         }
@@ -413,7 +784,7 @@ public class ErpReceivingService {
 
         Voucher v = new Voucher();
         v.requestId = request.clientRequestId().trim();
-        v.tag = TAG_PREFIX + v.requestId;
+        v.tag = tagPrefix + v.requestId;
         v.dDate = date.format(ERP_DATE);
         v.ilTable = ilTableFor(date);
         v.memo = request.memo() == null ? "" : request.memo().trim();
@@ -456,9 +827,21 @@ public class ErpReceivingService {
             row.put("gum", gum);
             row.put("vat", vat);
             // 적요는 줄마다 다를 수 있다(경영박사도 줄 단위로 적는다). 비면 전표 메모를 쓴다.
-            row.put("remark", line.remark() == null || line.remark().isBlank()
+            String remark = line.remark() == null || line.remark().isBlank()
                     ? (request.memo() == null ? "" : request.memo().trim())
-                    : line.remark().trim());
+                    : line.remark().trim();
+            row.put("remark", remark);
+            if (ORDER_TAG_PREFIX.equals(tagPrefix)) {
+                // 경영박사의 발주(KIND=13) 줄은 BIGO 에 단위(개/박스/마대…)를 적는다. 적요는 BIGO3 로 보낸다.
+                String unit = line.unit() == null || line.unit().isBlank()
+                        ? String.valueOf(item.getOrDefault("DANWI", "")).trim() : line.unit().trim();
+                if (unit.length() > 20) {
+                    throw new IllegalArgumentException("단위는 20자 이내로 입력하세요: " + item.get("ITEM"));
+                }
+                row.put("danwi", unit);
+                row.put("bigo", unit);
+                row.put("bigo3", remark);
+            }
             lines.add(row);
         }
         v.lines = lines;
@@ -541,7 +924,12 @@ public class ErpReceivingService {
 
     // ── 요청/내부 타입 ──────────────────────────────────────────────────────
 
-    public record VoucherLine(Integer itemCode, Integer ea, Integer price, String remark) {}
+    /** unit 은 발주 전표에서만 쓴다(직접 입력한 단위). 비면 품목의 기본 단위를 쓴다. */
+    public record VoucherLine(Integer itemCode, Integer ea, Integer price, String remark, String unit) {
+        public VoucherLine(Integer itemCode, Integer ea, Integer price, String remark) {
+            this(itemCode, ea, price, remark, null);
+        }
+    }
 
     public record VoucherRequest(String clientRequestId, String date, Integer vendorCode, String memo,
             List<VoucherLine> lines) {}

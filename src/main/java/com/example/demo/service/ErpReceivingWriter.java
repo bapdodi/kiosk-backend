@@ -23,6 +23,7 @@ public class ErpReceivingWriter {
 
     /** ERP 거래원장의 매입(입고) 구분. 3=매출, 4=매입, 13=발주. */
     static final int KIND_PURCHASE = 4;
+    static final int KIND_ORDER = 13;
 
     private final JdbcTemplate erpJdbcTemplate;
 
@@ -45,6 +46,16 @@ public class ErpReceivingWriter {
      */
     @Transactional("erpTransactionManager")
     public int insertVoucher(String requestId, String tag, String ilTable, String dDate,
+            String vendorCode, String memo, List<Map<String, Object>> lines, String actor) {
+        return insertVoucher(KIND_PURCHASE, requestId, tag, ilTable, dDate, vendorCode, memo, lines, actor);
+    }
+
+    /**
+     * 발주(KIND=13)도 같은 구조라 kind 만 다르다. 발주는 재고를 움직이지 않는다 -
+     * 물건이 들어오는 것은 나중에 명세서가 와서 KIND=4 매입으로 입력될 때다.
+     */
+    @Transactional("erpTransactionManager")
+    public int insertVoucher(int kind, String requestId, String tag, String ilTable, String dDate,
             String vendorCode, String memo, List<Map<String, Object>> lines, String actor) {
 
         int dNo = nextDno(ilTable, dDate);
@@ -70,7 +81,7 @@ public class ErpReceivingWriter {
                     dDate,
                     line.get("itemCode"),
                     vendorCode,
-                    KIND_PURCHASE,
+                    kind,
                     line.get("price"),
                     line.get("ea"),
                     line.get("gum"),
@@ -78,9 +89,9 @@ public class ErpReceivingWriter {
                     0, // SA
                     0, // DAECHE
                     0, // EA2
-                    line.getOrDefault("remark", memo), // BIGO - 줄 적요 (null 불가)
+                    line.getOrDefault("bigo", line.getOrDefault("remark", memo)), // BIGO - 줄 적요(발주는 단위) (null 불가)
                     tag, // BIGO2 - 우리 전표 추적용
-                    "", // BIGO3
+                    line.getOrDefault("bigo3", ""), // BIGO3 - 발주의 줄 적요
                     "", // ORDERCODE
                     0, // POINT
                     0); // JIJOM
@@ -94,7 +105,7 @@ public class ErpReceivingWriter {
             throw new IllegalStateException("전표번호가 다른 전표와 겹쳤습니다. 다시 저장해 주세요.");
         }
 
-        applyStockSideEffects(lines, 1);
+        if (kind == KIND_PURCHASE) applyStockSideEffects(lines, 1);
         return dNo;
     }
 
