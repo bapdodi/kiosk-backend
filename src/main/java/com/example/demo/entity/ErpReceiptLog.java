@@ -19,7 +19,7 @@ import lombok.Setter;
 /**
  * 관리자 화면에서 넣은 ERP 매입전표(IL&lt;yy&gt; KIND=4)의 로컬 이력.
  * ERP 가 진실의 원천이고 이 표는 보조 기록이다(두 DB 가 한 트랜잭션으로 묶이지 않는다).
- * 대사(reconcile)는 ERP 의 KIOSK_RECEIPT_VOUCHER 를 기준으로 한다.
+ * 대사(reconcile)는 ERP 원장 줄의 BIGO2 추적 태그를 기준으로 한다.
  */
 @Entity
 @Table(name = "erp_receipt_log")

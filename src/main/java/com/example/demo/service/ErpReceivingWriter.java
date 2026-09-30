@@ -60,13 +60,11 @@ public class ErpReceivingWriter {
 
         int dNo = nextDno(ilTable, dDate);
 
-        // 멱등: PK 충돌을 판정에 쓴다. SELECT 후 INSERT 는 두 요청이 겹칠 때 둘 다 통과할 수 있다.
-        try {
-            erpJdbcTemplate.update(
-                    "INSERT INTO KIOSK_RECEIPT_VOUCHER (REQUEST_ID, IL_TABLE, dDATE, dNO, LINES, CREATED_AT, CREATED_BY)"
-                            + " VALUES (?, ?, ?, ?, ?, SYSDATETIME(), ?)",
-                    requestId, ilTable, dDate, dNo, lines.size(), actor);
-        } catch (org.springframework.dao.DuplicateKeyException e) {
+        // 멱등: 별도 테이블 없이 원장 줄의 추적 태그(BIGO2)가 곧 요청 ID 다.
+        // 채번이 UPDLOCK/HOLDLOCK 으로 직렬화돼 있어, 같은 요청이 겹쳐도 뒤에 온 쪽은 앞 쪽 커밋 뒤에 태그를 보게 된다.
+        Integer already = erpJdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM " + ilTable + " WHERE BIGO2 = ?", Integer.class, tag);
+        if (already != null && already > 0) {
             throw new IllegalStateException("이미 저장된 요청입니다. 화면을 새로고침하세요.");
         }
 
@@ -131,8 +129,6 @@ public class ErpReceivingWriter {
             throw new IllegalStateException(
                     "삭제된 줄 수가 기록과 다릅니다(" + deleted + "/" + expectedLines + "). 경영박사에서 확인하세요.");
         }
-        erpJdbcTemplate.update(
-                "UPDATE KIOSK_RECEIPT_VOUCHER SET CANCELLED_AT = SYSDATETIME() WHERE REQUEST_ID = ?", requestId);
         applyStockSideEffects(lines, -1);
     }
 
