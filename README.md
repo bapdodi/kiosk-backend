@@ -71,19 +71,6 @@ JEGO 와 일치하지 않아(경영박사가 유지하는 파생값), 임의로 
 | `ERP_RECEIVING_STOCK_MODE` | `NONE` | `NONE` \| `JEGO`. JEGO 반영 여부 |
 | `ERP_RECEIVING_DATE_WINDOW_DAYS` | `7` | 입고일자를 오늘 ±N일로 제한(월마감 보호) |
 
-쓰기를 켜기 전에 ERP DB 에 멱등 테이블을 1회 만들어야 합니다(주문 전송의 `KIOSK_ORDER_RECEIPT` 와 같은 역할):
-
-```sql
-CREATE TABLE KIOSK_RECEIPT_VOUCHER (
-    REQUEST_ID   NVARCHAR(64)  NOT NULL PRIMARY KEY,
-    IL_TABLE     NVARCHAR(8)   NOT NULL,
-    dDATE        NVARCHAR(10)  NOT NULL,
-    dNO          INT           NOT NULL,
-    LINES        INT           NOT NULL,
-    CREATED_AT   DATETIME2     NOT NULL,
-    CREATED_BY   NVARCHAR(64)  NULL,
-    CANCELLED_AT DATETIME2     NULL
-);
-```
+별도 멱등 테이블은 필요 없습니다. 같은 요청의 중복 저장과 취소 대상은 원장 줄의 추적 태그(`BIGO2`)로 판단합니다.
 
 운영 배포는 `docker-compose.prod.yml` + Watchtower를 사용합니다.

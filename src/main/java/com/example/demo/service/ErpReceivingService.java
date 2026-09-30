@@ -725,11 +725,11 @@ public class ErpReceivingService {
         out.put("lineCount", voucher.lines.size());
         out.put("totalAmount", voucher.totalAmount);
 
-        // 멱등: 같은 요청을 다시 보내면 이미 저장된 전표를 돌려준다.
-        List<Map<String, Object>> existing = erpJdbcTemplate.queryForList(
-                "SELECT dNO FROM KIOSK_RECEIPT_VOUCHER WHERE REQUEST_ID = ? AND CANCELLED_AT IS NULL", voucher.requestId);
-        if (!existing.isEmpty()) {
-            out.put("dNo", existing.get(0).get("dNO"));
+        // 멱등: 같은 요청을 다시 보내면 이미 저장된 전표를 돌려준다(태그로 원장에서 찾는다).
+        Map<String, Object> existing = locateOrder(voucher.tag, LocalDate.parse(request.date() == null || request.date().isBlank()
+                ? LocalDate.now().toString() : request.date()));
+        if (existing != null) {
+            out.put("dNo", existing.get("dNo"));
             out.put("duplicate", true);
             return out;
         }
@@ -742,23 +742,46 @@ public class ErpReceivingService {
         return out;
     }
 
-    /** 발주 전표 취소. KIOSK_RECEIPT_VOUCHER 에 남은 우리 전표만, BIGO2 태그가 맞는 줄만 지운다. */
+    /**
+     * 추적 태그로 원장의 발주 전표를 찾는다. 입고일 ±허용 일수 안의 해(年) 테이블만 본다(월마감 보호 범위와 같다).
+     * 없으면 null. (별도 멱등 테이블을 두지 않고 원장 줄의 BIGO2 태그를 기준으로 삼는다.)
+     */
+    private Map<String, Object> locateOrder(String tag, LocalDate around) {
+        java.util.Set<String> tables = new java.util.LinkedHashSet<>();
+        tables.add(ilTableFor(around));
+        tables.add(ilTableFor(around.minusDays(dateWindowDays)));
+        tables.add(ilTableFor(around.plusDays(dateWindowDays)));
+        for (String table : tables) {
+            Integer exists = erpJdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM sys.tables WHERE name = ?", Integer.class, table);
+            if (exists == null || exists == 0) continue;
+            List<Map<String, Object>> rows = erpJdbcTemplate.queryForList(
+                    "SELECT dDATE, dNO, COUNT(*) AS n FROM " + table + " WHERE BIGO2 = ? AND KIND = ? GROUP BY dDATE, dNO",
+                    tag, ErpReceivingWriter.KIND_ORDER);
+            if (rows.isEmpty()) continue;
+            Map<String, Object> row = rows.get(0);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("ilTable", table);
+            out.put("dDate", String.valueOf(row.get("dDATE")).trim());
+            out.put("dNo", ((Number) row.get("dNO")).intValue());
+            out.put("lines", ((Number) row.get("n")).intValue());
+            return out;
+        }
+        return null;
+    }
+
+    /** 발주 전표 취소. BIGO2 태그가 맞는 우리 줄만 지운다. */
     public Map<String, Object> cancelOrder(String requestId) {
         if (!writeEnabled) {
             throw new IllegalStateException("읽기 전용 모드입니다.");
         }
-        List<Map<String, Object>> rows = erpJdbcTemplate.queryForList(
-                "SELECT IL_TABLE, dDATE, dNO, LINES, CANCELLED_AT FROM KIOSK_RECEIPT_VOUCHER WHERE REQUEST_ID = ?",
-                requestId);
-        if (rows.isEmpty()) throw new IllegalArgumentException("발주 이력을 찾을 수 없습니다: " + requestId);
-        Map<String, Object> row = rows.get(0);
-        if (row.get("CANCELLED_AT") != null) throw new IllegalStateException("이미 취소된 전표입니다.");
-        String ilTable = String.valueOf(row.get("IL_TABLE"));
-        if (!ilTable.matches("IL\\d{2}")) throw new IllegalStateException("전표 테이블이 올바르지 않습니다.");
-        String dDate = String.valueOf(row.get("dDATE"));
+        String tag = ORDER_TAG_PREFIX + requestId;
+        Map<String, Object> found = locateOrder(tag, LocalDate.now());
+        if (found == null) throw new IllegalArgumentException("발주 전표를 찾을 수 없습니다(이미 취소됐거나 없는 전표): " + requestId);
+        String dDate = String.valueOf(found.get("dDate"));
         checkDateWindow(LocalDate.parse("20" + dDate.replace('.', '-')));
-        writer.deleteVoucher(requestId, ORDER_TAG_PREFIX + requestId, ilTable, dDate,
-                ((Number) row.get("dNO")).intValue(), ((Number) row.get("LINES")).intValue(), List.of());
+        writer.deleteVoucher(requestId, tag, String.valueOf(found.get("ilTable")), dDate,
+                ((Number) found.get("dNo")).intValue(), ((Number) found.get("lines")).intValue(), List.of());
         return Map.of("cancelled", true, "requestId", requestId);
     }
 
