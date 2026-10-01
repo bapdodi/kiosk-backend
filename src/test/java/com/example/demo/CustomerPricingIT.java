@@ -54,26 +54,25 @@ class CustomerPricingIT {
     }
 
     @Test
-    void 주문_생성_시점부터_거래처_단가로_계산된다() {
-        // A단가와 소비자가가 실제로 다른 상품이라야 등급 선택 여부를 구분할 수 있다.
+    void 거래처와_상관없이_모든_주문은_A단가로_계산된다() {
+        // A단가와 소비자가가 실제로 다른 상품이라야 A단가를 골랐는지 구분할 수 있다.
         Product product = productRepository.findAll().stream()
                 .filter(p -> p.getErpCode() != null && !p.getErpCode().isBlank())
                 .filter(p -> p.getPriceA() != null && p.getPriceA() > 0)
-                .filter(p -> p.getPriceB() != null && p.getPriceB() > 0)
-                .filter(p -> !p.getPriceA().equals(p.getPriceC()) && !p.getPriceB().equals(p.getPriceC()))
+                .filter(p -> !p.getPriceA().equals(p.getPriceC()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("A/B/C 단가가 서로 다른 상품이 없어 검증할 수 없다"));
+                .orElseThrow(() -> new IllegalStateException("A단가와 소비자가가 다른 상품이 없어 검증할 수 없다"));
 
         String erpCode = product.getErpCode();
         customerRepository.save(customer("IT-A", 2));
         customerRepository.save(customer("IT-B", 3));
         customerRepository.save(customer("IT-PURCHASE", 1));
 
+        // 등급이 달라도, 사본에 없는 거래처여도 단가는 같다.
         assertThat(unitPriceFor("IT-A", erpCode)).isEqualTo(product.getPriceA());
-        assertThat(unitPriceFor("IT-B", erpCode)).isEqualTo(product.getPriceB());
-        // 단가표가 없는 거래처(매입처)와 사본에 없는 거래처는 소비자가로 떨어진다.
-        assertThat(unitPriceFor("IT-PURCHASE", erpCode)).isEqualTo(product.getPriceC());
-        assertThat(unitPriceFor("IT-UNKNOWN", erpCode)).isEqualTo(product.getPriceC());
+        assertThat(unitPriceFor("IT-B", erpCode)).isEqualTo(product.getPriceA());
+        assertThat(unitPriceFor("IT-PURCHASE", erpCode)).isEqualTo(product.getPriceA());
+        assertThat(unitPriceFor("IT-UNKNOWN", erpCode)).isEqualTo(product.getPriceA());
     }
 
     private Customer customer(String code, int danga) {

@@ -18,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
  * 처리 완료된 키오스크 주문을 ERP 매출 전표(SUJU + IL<yy> KIND=3)로 기록한다.
  * {@link ErpOrderOutboxWorker} 가 outbox 에 쌓인 주문을 하나씩 넘긴다.
  *
- * 전표 금액은 ERP 의 현재 단가로 다시 매기되, 거래처 등급으로 단가를 고르는 규칙은 주문 접수와 같다
+ * 전표 금액은 ERP 의 현재 A단가로 다시 매긴다. 단가를 고르는 규칙은 주문 접수와 같다
  * ({@link ErpPriceTier#price}). 그 값을 주문 품목의 chargedPrice 와 주문 총액에 되돌려 쓴다.
  * 같은 주문의 재전송은 KIOSK_ORDER_RECEIPT 로 막는다.
  */
@@ -63,20 +63,17 @@ public class ErpOrderSender {
         String tag = "KIOSK-" + order.getId();
         boolean hasCustomer = order.getErpCustomerCode() != null && !order.getErpCustomerCode().isEmpty();
         String custCode = hasCustomer ? order.getErpCustomerCode() : WALK_IN_CUSTOMER;
-        // 거래처를 고르지 않은 주문은 등급이 없다 → 주문 접수 때처럼 소비자가.
-        // (예전엔 코드 1 의 등급을 찾다가 없으면 A단가로 넣어, 화면·명세서보다 싸게 청구됐다.)
-        Integer danga = hasCustomer ? customerDanga(custCode) : null;
 
         // 한 주문의 모든 품목은 동일한 전표번호(dNO)로 묶고, 품목별로 EDITNO(라인번호)만 증가시킨다.
         int orderDno = nextVoucherNo(ilTable, erpDate);
         int editNo = 0;
-        // 거래처 실청구가(A/B/C단가 반영) 합계. 주문 totalAmount 를 실청구가 기준으로 갱신한다.
+        // 실청구가(A단가) 합계. 주문 totalAmount 를 실청구가 기준으로 갱신한다.
         long orderChargedTotal = 0;
 
         for (OrderItem item : order.getItems()) {
-            int actualPrice = chargedPrice(order, item, danga);
+            int actualPrice = chargedPrice(order, item);
             int ea = item.getQuantity() != null ? item.getQuantity() : 1;
-            // 거래처 DANGA 반영 실청구가를 주문 품목에 저장(주문상세/매출 표시에 사용).
+            // A단가 실청구가를 주문 품목에 저장(주문상세/매출 표시에 사용).
             item.setChargedPrice(actualPrice);
             orderChargedTotal += (long) actualPrice * ea;
             long gum = (long) actualPrice * ea;
@@ -122,7 +119,7 @@ public class ErpOrderSender {
             throw new IllegalStateException("ERP 전표번호 " + orderDno + " 가 다른 전표와 겹쳐 다시 보냅니다.");
         }
 
-        // 주문 총액을 실청구가(거래처 DANGA 반영) 기준으로 갱신. 관리 엔티티라 트랜잭션 커밋 시 반영된다.
+        // 주문 총액을 실청구가(A단가) 기준으로 갱신. 관리 엔티티라 트랜잭션 커밋 시 반영된다.
         order.setTotalAmount((int) orderChargedTotal);
         log.info("Order #{} sent to ERP as {} dNO {} ({} lines)", order.getId(), ilTable, orderDno, editNo);
     }
@@ -138,32 +135,14 @@ public class ErpOrderSender {
         return (max != null ? max : 0) + 1;
     }
 
-    /** ERP 거래처 등급. 거래처가 없거나 등급이 비어 있으면 null(= 소비자가). */
-    private Integer customerDanga(String custCode) {
-        List<Integer> rows;
-        try {
-            rows = erpJdbcTemplate.queryForList(
-                    "SELECT CAST(DANGA AS INT) FROM GURAE WHERE CODE = ?", Integer.class, custCode);
-        } catch (Exception e) {
-            // 등급을 못 읽었다고 매출 전송을 막지는 않는다.
-            log.warn("Failed to read DANGA for ERP customer {}, charging consumer price", custCode, e);
-            return null;
-        }
-        if (rows.isEmpty() || rows.get(0) == null) {
-            log.warn("ERP customer {} has no price tier (DANGA), charging consumer price", custCode);
-            return null;
-        }
-        return rows.get(0);
-    }
-
     /**
      * ERP 현재 단가로 매긴 청구가. ERP 에 품목이 없거나 단가가 비어 0 이 되면 주문 접수 때 가격을 그대로 쓴다
      * (0원 전표를 만들지 않기 위해서다).
      */
-    private int chargedPrice(Order order, OrderItem item, Integer danga) {
+    private int chargedPrice(Order order, OrderItem item) {
         int orderedPrice = item.getFinalPrice() != null ? item.getFinalPrice() : 0;
         List<Map<String, Object>> rows = erpJdbcTemplate.queryForList(
-                "SELECT ISNULL(OUTA,0) as outA, ISNULL(OUTB,0) as outB, ISNULL(OUTC,0) as outC FROM ITEM WHERE CODE = ?",
+                "SELECT ISNULL(OUTA,0) as outA, ISNULL(OUTC,0) as outC FROM ITEM WHERE CODE = ?",
                 item.getErpCode());
         if (rows.isEmpty()) {
             log.warn("Order #{} item {} is not in ERP ITEM, charging ordered price {}",
@@ -171,13 +150,12 @@ public class ErpOrderSender {
             return orderedPrice;
         }
         Map<String, Object> prices = rows.get(0);
-        Integer price = ErpPriceTier.price(danga,
+        Integer price = ErpPriceTier.price(
                 ErpValues.toInteger(prices.get("outA")),
-                ErpValues.toInteger(prices.get("outB")),
                 ErpValues.toInteger(prices.get("outC")));
         if (price == null || price <= 0) {
-            log.warn("Order #{} item {} has no ERP price for DANGA {}, charging ordered price {}",
-                    order.getId(), item.getErpCode(), danga, orderedPrice);
+            log.warn("Order #{} item {} has no ERP price, charging ordered price {}",
+                    order.getId(), item.getErpCode(), orderedPrice);
             return orderedPrice;
         }
         return price;

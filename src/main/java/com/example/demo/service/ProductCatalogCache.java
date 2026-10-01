@@ -54,7 +54,7 @@ public class ProductCatalogCache {
     }
 
     /**
-     * 손님 화면용 전체 상품 목록. 단가(A/B/C)를 지운 뒤 그 결과를 따로 캐싱한다.
+     * 손님 화면용 전체 상품 목록. 단가(A/B/C)를 `price` 하나로 바꾼 뒤 그 결과를 따로 캐싱한다.
      * 관리자 목록과 원본이 같으므로, 걷어내는 비용도 상품이 바뀔 때 한 번만 든다.
      */
     @Transactional(readOnly = true)

@@ -12,7 +12,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import com.example.demo.entity.Order;
 import com.example.demo.entity.OrderItem;
 import com.example.demo.repository.CombinationRepository;
-import com.example.demo.repository.CustomerRepository;
 import com.example.demo.repository.OrderRepository;
 import com.example.demo.repository.ProductRepository;
 import com.example.demo.repository.ErpOrderOutboxRepository;
@@ -30,7 +29,6 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final CombinationRepository combinationRepository;
-    private final CustomerRepository customerRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ErpOrderOutboxRepository erpOrderOutboxRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -94,45 +92,30 @@ public class OrderService {
      * 품목의 ERP 코드로 판매가를 직접 찾아 채운다. 복합옵션 상품은 규격마다 코드가 달라
      * 조합(Combination)을 먼저 보고, 없으면 상품 단위 코드로 찾는다.
      *
-     * 단가는 주문자의 거래처 등급(ERP GURAE.DANGA)을 로컬 사본에서 읽어 A/B/C 중 하나를 고른다.
-     * 예전에는 여기서 소비자가만 넣고 ERP 전송 때 실청구가로 덮어썼는데, 그러면 전송 전(주문 접수 ~
-     * 처리 완료 사이) 주문 화면과 거래명세서가 소비자가로 보였다. ERP 전송 때의 최종 확정은 그대로다.
+     * 단가는 거래처와 상관없이 모든 주문이 A단가({@link ErpPriceTier#price})다. 손님 화면에 보이는 가격과
+     * 같은 규칙이라, 화면에서 본 금액이 그대로 청구된다. ERP 전송 때의 최종 확정은 그대로다.
      */
     private void priceOrder(Order order) {
-        Integer danga = resolveDanga(order.getErpCustomerCode());
         long total = 0;
         for (OrderItem item : order.getItems()) {
-            int unitPrice = resolveUnitPrice(item, danga);
+            int unitPrice = resolveUnitPrice(item);
             item.setFinalPrice(unitPrice);
             total += (long) unitPrice * (item.getQuantity() != null ? item.getQuantity() : 1);
         }
         order.setTotalAmount((int) total);
     }
 
-    /** 거래처 단가 등급. 사본에 없으면 null 이고, 이 경우 소비자가로 계산한다. */
-    private Integer resolveDanga(String erpCustomerCode) {
-        if (erpCustomerCode == null || erpCustomerCode.isBlank()) {
-            return null;
-        }
-        return customerRepository.findByErpCode(erpCustomerCode.trim())
-                .map(c -> c.getDanga())
-                .orElseGet(() -> {
-                    log.warn("No local copy of ERP customer {}, pricing at consumer price", erpCustomerCode);
-                    return null;
-                });
-    }
-
-    private int resolveUnitPrice(OrderItem item, Integer danga) {
+    private int resolveUnitPrice(OrderItem item) {
         String erpCode = item.getErpCode();
         if (erpCode != null && !erpCode.isBlank()) {
             Integer comboPrice = combinationRepository.findFirstByErpCodeAndDeletedFalse(erpCode)
-                    .map(c -> pickTier(danga, c.getPriceA(), c.getPriceB(), c.getPriceC()))
+                    .map(c -> ErpPriceTier.price(c.getPriceA(), c.getPriceC()))
                     .orElse(null);
             if (comboPrice != null) {
                 return comboPrice;
             }
             Integer productPrice = productRepository.findByErpCode(erpCode)
-                    .map(p -> pickTier(danga, p.getPriceA(), p.getPriceB(), p.getPriceC()))
+                    .map(p -> ErpPriceTier.price(p.getPriceA(), p.getPriceC()))
                     .orElse(null);
             if (productPrice != null) {
                 return productPrice;
@@ -140,11 +123,6 @@ public class OrderService {
         }
         // 코드로 못 찾은 품목은 0 으로 둔다. ERP 전송이 성공하면 실청구가로 덮어써진다.
         return 0;
-    }
-
-    /** DANGA 등급에 맞는 단가. 규칙은 ERP 전송과 같다({@link ErpPriceTier#price}). */
-    private Integer pickTier(Integer danga, Integer priceA, Integer priceB, Integer priceC) {
-        return ErpPriceTier.price(danga, priceA, priceB, priceC);
     }
 
     /**

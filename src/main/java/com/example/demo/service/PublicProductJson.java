@@ -11,35 +11,36 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 손님 화면으로 나가는 상품 JSON 에서 단가를 걷어낸다.
+ * 손님 화면으로 나가는 상품 JSON 의 가격을 `price` 하나로 바꾼다.
  *
- * 화면에서 가격을 감춰도 응답 본문에는 그대로 남아 개발자도구나 curl 로 전부 보인다.
- * 가격은 거래처마다 다른 값(A/B/C단가)이라 손님 단말에 내려갈 이유가 없으므로,
- * 공개 API 는 이 필터를 거친 뒤에만 응답한다. 관리자 API 는 거치지 않는다.
+ * 손님은 모두 같은 A단가를 낸다({@link ErpPriceTier#price}). 그래서 화면에는 그 값만
+ * `price` 로 내려주고, A/B/C 원본 단가(priceA/priceB/priceC)는 응답 본문에서 지운다.
+ * B단가와 소비자가는 손님 단말에 내려갈 이유가 없고, 개발자도구나 curl 로 전부 보이기 때문이다.
+ * 관리자 API 는 이 필터를 거치지 않아 원본 단가를 그대로 받는다.
  *
  * 필드 이름 기준으로 전체를 훑는다. 상품 본문뿐 아니라 combinations 안의 단가까지
- * 한 번에 걸리고, 나중에 가격을 품은 필드가 추가돼도 이름만 넣으면 된다.
+ * 한 번에 걸린다. 가격이 없는 객체(옵션 이미지 등)는 건드리지 않는다.
  */
 @Component
 @RequiredArgsConstructor
 public class PublicProductJson {
 
-    private static final List<String> PRICE_FIELDS = List.of("priceC", "priceA", "priceB");
+    private static final List<String> RAW_PRICE_FIELDS = List.of("priceC", "priceA", "priceB");
 
     private final ObjectMapper objectMapper;
 
-    /** 이미 직렬화된 상품 JSON(배열/객체)에서 단가를 지운 문자열을 돌려준다. */
+    /** 이미 직렬화된 상품 JSON(배열/객체)을 손님용 가격으로 바꾼 문자열을 돌려준다. */
     public String strip(String json) {
         try {
             JsonNode root = objectMapper.readTree(json);
             stripNode(root);
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
-            throw new IllegalStateException("상품 목록에서 단가를 제거하지 못했습니다.", e);
+            throw new IllegalStateException("상품 목록의 가격을 손님용으로 바꾸지 못했습니다.", e);
         }
     }
 
-    /** 엔티티(또는 Page 같은 래퍼)를 단가 없는 JSON 트리로 바꾼다. */
+    /** 엔티티(또는 Page 같은 래퍼)를 손님용 가격의 JSON 트리로 바꾼다. */
     public JsonNode strip(Object value) {
         JsonNode root = objectMapper.valueToTree(value);
         stripNode(root);
@@ -52,8 +53,20 @@ public class PublicProductJson {
             return;
         }
         if (node.isObject()) {
-            ((ObjectNode) node).remove(PRICE_FIELDS);
-            node.forEach(this::stripNode);
+            ObjectNode object = (ObjectNode) node;
+            if (RAW_PRICE_FIELDS.stream().anyMatch(object::has)) {
+                Integer price = ErpPriceTier.price(intOrNull(object, "priceA"), intOrNull(object, "priceC"));
+                object.remove(RAW_PRICE_FIELDS);
+                if (price != null) {
+                    object.put("price", price);
+                }
+            }
+            object.forEach(this::stripNode);
         }
+    }
+
+    private Integer intOrNull(ObjectNode object, String field) {
+        JsonNode value = object.get(field);
+        return value == null || value.isNull() ? null : value.asInt();
     }
 }
