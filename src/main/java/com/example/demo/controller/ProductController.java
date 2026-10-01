@@ -36,9 +36,8 @@ public class ProductController {
     private final PublicProductJson publicProductJson;
 
     /**
-     * 손님 화면용 조회 API 는 단가를 빼고 내려준다. 화면에서 가격을 감춰도 응답 본문에 남으면
-     * 누구나 그대로 읽을 수 있고, 주문 금액은 서버가 다시 계산하므로 손님 단말에 줄 이유가 없다.
-     * 가격이 필요한 관리자 화면은 아래 /admin 경로(ROLE_ADMIN)를 쓴다.
+     * 손님 화면용 조회 API 는 가격을 `price`(A단가) 하나로만 내려준다. A/B/C 원본 단가는 빼고,
+     * 주문 금액은 서버가 다시 계산한다. 원본 단가가 필요한 관리자 화면은 아래 /admin 경로(ROLE_ADMIN)를 쓴다.
      */
     @GetMapping
     public JsonNode getAllProducts(
