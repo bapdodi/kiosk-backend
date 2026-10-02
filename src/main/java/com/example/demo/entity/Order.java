@@ -38,8 +38,10 @@ public class Order {
 
     private String erpCustomerCode;
 
+    // 관리자 화면은 주문 전체를 품목까지 주기적으로 받아 간다. 묶어 읽지 않으면 주문 수만큼 쿼리가 나간다.
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "order_id")
+    @org.hibernate.annotations.BatchSize(size = 500)
     private List<OrderItem> items;
 
     private Integer totalAmount;
