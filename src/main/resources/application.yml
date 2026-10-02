@@ -29,6 +29,12 @@ server:
   # 기본값 8080. 로컬에서 8080 이 점유된 경우 .env 의 SERVER_PORT 로 override (예: 8093).
   port: ${SERVER_PORT:8080}
 
+kiosk:
+  admin:
+    # 관리자(admin) 비밀번호. 값을 주면 기동할 때 이 값으로 맞춘다. 비우면 기존 비밀번호를 그대로 둔다.
+    # 저장소가 공개이므로 실제 값은 .env 나 배포 환경변수로만 넣는다.
+    password: ${KIOSK_ADMIN_PASSWORD:}
+
 vision:
   # 비전 서비스의 ERP 매출 읽기 전용 브리지. 비어 있으면 접근 거부.
   erp-bridge-token: ${VISION_ERP_BRIDGE_TOKEN:}
@@ -64,8 +70,8 @@ logging:
   level:
     root: INFO
     org.springframework.web: INFO
-    org.hibernate.SQL: DEBUG
-    org.hibernate.tool.schema: DEBUG
+    # 모든 SQL 을 찍으면 주문 목록 폴링마다 수백 줄이 운영 로그에 쌓인다. 조사할 때만
+    # SPRING_JPA_SHOW_SQL=true 로 켠다. (환경변수 로거 이름은 소문자로 바뀌어 org.hibernate.SQL 에 안 닿는다)
 
 erp:
   datasource:

@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -69,12 +70,13 @@ public class ErpOrderSender {
         int editNo = 0;
         // 실청구가(A단가) 합계. 주문 totalAmount 를 실청구가 기준으로 갱신한다.
         long orderChargedTotal = 0;
+        // 품목별 실청구가. 전표가 끝까지 들어간 뒤에만 주문에 옮겨 적는다.
+        List<Integer> chargedPrices = new ArrayList<>();
 
         for (OrderItem item : order.getItems()) {
             int actualPrice = chargedPrice(order, item);
             int ea = item.getQuantity() != null ? item.getQuantity() : 1;
-            // A단가 실청구가를 주문 품목에 저장(주문상세/매출 표시에 사용).
-            item.setChargedPrice(actualPrice);
+            chargedPrices.add(actualPrice);
             orderChargedTotal += (long) actualPrice * ea;
             long gum = (long) actualPrice * ea;
             long vat = gum / 10;
@@ -119,7 +121,12 @@ public class ErpOrderSender {
             throw new IllegalStateException("ERP 전표번호 " + orderDno + " 가 다른 전표와 겹쳐 다시 보냅니다.");
         }
 
-        // 주문 총액을 실청구가(A단가) 기준으로 갱신. 관리 엔티티라 트랜잭션 커밋 시 반영된다.
+        // 실청구가와 총액은 ERP 기록이 모두 성공한 뒤에만 주문에 남긴다. 중간에 실패해 ERP 가 롤백돼도
+        // 주문 쪽(키오스크 DB) 트랜잭션은 별개라, 먼저 써 두면 보내지 않은 주문에 청구가가 찍힌다.
+        // (chargedPrice 가 비어 있으면 ERP 전송 실패로 본다.) 관리 엔티티라 커밋 시 반영된다.
+        for (int i = 0; i < chargedPrices.size(); i++) {
+            order.getItems().get(i).setChargedPrice(chargedPrices.get(i));
+        }
         order.setTotalAmount((int) orderChargedTotal);
         log.info("Order #{} sent to ERP as {} dNO {} ({} lines)", order.getId(), ilTable, orderDno, editNo);
     }

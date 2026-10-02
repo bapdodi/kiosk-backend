@@ -1,5 +1,10 @@
 package com.example.demo.config;
 
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.Optional;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,8 +15,10 @@ import com.example.demo.entity.User;
 import com.example.demo.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Configuration
+@Slf4j
 @RequiredArgsConstructor
 public class DataInitializer {
 
@@ -19,26 +26,54 @@ public class DataInitializer {
     private final PasswordEncoder passwordEncoder;
     private final JdbcTemplate jdbcTemplate;
 
+    /** 관리자 비밀번호. 비어 있으면 이미 있는 관리자 계정의 비밀번호는 건드리지 않는다. */
+    @Value("${kiosk.admin.password:}")
+    private String adminPassword;
+
     @Bean
     public CommandLineRunner initData() {
         return args -> {
-            // User Initialization - 단 하나의 어드민 계정만 생성하거나 업데이트합니다.
-            User admin = userRepository.findByUsername("admin")
-                    .orElseGet(() -> User.builder()
-                            .username("admin")
-                            .build());
-
-            admin.setPassword(passwordEncoder.encode("admin123"));
-            admin.setRole("ROLE_ADMIN");
-            userRepository.save(admin);
-
-            System.out.println("Default admin user updated/created: admin / admin123");
+            initAdmin();
 
             normalizeCategorySortOrder();
 
             // 제품 및 카테고리 목 데이터는 모두 제거되었습니다.
             // 사용자가 직접 DB에 데이터를 입력할 수 있는 상태입니다.
         };
+    }
+
+    /**
+     * 단 하나의 관리자 계정(admin)을 준비한다.
+     *
+     * 예전에는 기동할 때마다 비밀번호를 소스에 적힌 고정값으로 되돌렸다. 저장소가 공개라
+     * 그 값이 곧 운영 관리자 비밀번호였다. 이제 KIOSK_ADMIN_PASSWORD 를 준 경우에만 그 값으로
+     * 맞추고, 없으면 기존 계정은 그대로 둔다. 계정이 아예 없으면 임의 비밀번호로 만들고 로그에 한 번 남긴다.
+     */
+    private void initAdmin() {
+        Optional<User> existing = userRepository.findByUsername("admin");
+        boolean configured = adminPassword != null && !adminPassword.isBlank();
+        if (existing.isPresent() && !configured) {
+            return;
+        }
+
+        User admin = existing.orElseGet(() -> User.builder().username("admin").build());
+        String password = configured ? adminPassword : randomPassword();
+        admin.setPassword(passwordEncoder.encode(password));
+        admin.setRole("ROLE_ADMIN");
+        userRepository.save(admin);
+
+        if (configured) {
+            log.info("관리자(admin) 비밀번호를 KIOSK_ADMIN_PASSWORD 값으로 맞췄습니다.");
+        } else {
+            log.warn("관리자(admin) 계정을 새로 만들었습니다. 임시 비밀번호: {} "
+                    + "— KIOSK_ADMIN_PASSWORD 로 바꿔 두세요.", password);
+        }
+    }
+
+    private static String randomPassword() {
+        byte[] bytes = new byte[12];
+        new SecureRandom().nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     /**
@@ -82,10 +117,10 @@ public class DataInitializer {
                             "  ) - 1) AS rn FROM categories" +
                             ") t WHERE c.id = t.id AND c.sort_order IS DISTINCT FROM t.rn");
 
-            System.out.println("Normalized sort_order for " + updated + " category row(s)");
+            log.info("Normalized sort_order for {} category row(s)", updated);
         } catch (Exception e) {
             // 정규화 실패가 애플리케이션 기동을 막지 않도록 로깅만 한다.
-            System.err.println("Category sort_order normalization skipped: " + e.getMessage());
+            log.warn("Category sort_order normalization skipped: {}", e.getMessage());
         }
     }
 }

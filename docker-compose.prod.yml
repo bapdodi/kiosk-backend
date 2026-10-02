@@ -21,11 +21,12 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/kiosk
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: password
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
       ERP_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;databaseName=DR_ERP;trustServerCertificate=true
       ERP_DATASOURCE_USERNAME: sa
       ERP_DATASOURCE_PASSWORD: "1111"
       VISION_ERP_BRIDGE_TOKEN: ${VISION_ERP_BRIDGE_TOKEN:-}
+      # 관리자 비밀번호(.env 에서 주입, 커밋 금지). 비우면 기존 비밀번호를 유지한다.
+      KIOSK_ADMIN_PASSWORD: ${KIOSK_ADMIN_PASSWORD:-}
       # 업로드 이미지 저장소(MinIO). 시크릿은 .env 에서 주입(커밋 금지).
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://192.168.0.90:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-admin}

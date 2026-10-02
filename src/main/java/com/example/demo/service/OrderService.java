@@ -5,9 +5,11 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.example.demo.entity.Order;
 import com.example.demo.entity.OrderItem;
@@ -40,10 +42,11 @@ public class OrderService {
 
     @Transactional
     public Order createOrder(Order order, String requestId) {
+        resetServerOwnedFields(order);
         if (requestId != null && !requestId.isBlank()) {
             String normalizedRequestId = requestId.trim();
             if (normalizedRequestId.length() > 64) {
-                throw new IllegalArgumentException("Idempotency-Key is too long");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Idempotency-Key is too long");
             }
             // The transaction-scoped lock closes the concurrent duplicate-request race.
             jdbcTemplate.queryForObject("select pg_advisory_xact_lock(hashtextextended(?, 0))",
@@ -55,23 +58,18 @@ public class OrderService {
             order.setRequestId(normalizedRequestId);
         }
         order.setTimestamp(LocalDateTime.now());
-        if (order.getStatus() == null) {
-            order.setStatus("pending");
-        }
 
         // Populate erpCode for each item
-        if (order.getItems() != null) {
-            for (OrderItem item : order.getItems()) {
-                if (item.getErpCode() == null) {
-                    // Try to find product by name to get erpCode
-                    // Note: This is a fallback. Ideally the frontend should send erpCode or
-                    // productId.
-                    productRepository.findByName(item.getName()).stream().findFirst()
-                            .ifPresent(p -> item.setErpCode(p.getErpCode()));
-                }
+        for (OrderItem item : order.getItems()) {
+            if (item.getErpCode() == null) {
+                // Try to find product by name to get erpCode
+                // Note: This is a fallback. Ideally the frontend should send erpCode or
+                // productId.
+                productRepository.findByName(item.getName()).stream().findFirst()
+                        .ifPresent(p -> item.setErpCode(p.getErpCode()));
             }
-            priceOrder(order);
         }
+        priceOrder(order);
 
         Order savedOrder = orderRepository.save(order);
         orderRepository.flush();
@@ -83,6 +81,28 @@ public class OrderService {
         eventPublisher.publishEvent(new OrderCreatedEvent(savedOrder.getId(), savedOrder.getCustomerName()));
 
         return savedOrder;
+    }
+
+    /**
+     * 손님 화면에서 온 본문 중 서버가 정하는 값은 버린다.
+     *
+     * 주문 접수는 인증 없이 열린 API 다. id 가 들어오면 save() 가 기존 주문을 덮어쓰고(merge),
+     * 상태를 'completed' 로 보내면 처리 완료 전환이 일어나지 않아 ERP 전송이 예약되지 않는다.
+     * chargedPrice 는 ERP 전송 결과로만 채워져야 한다.
+     */
+    private void resetServerOwnedFields(Order order) {
+        if (order.getItems() == null || order.getItems().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "주문 품목이 없습니다.");
+        }
+        order.setId(null);
+        order.setStatus("pending");
+        for (OrderItem item : order.getItems()) {
+            if (item.getQuantity() != null && item.getQuantity() < 1) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "수량은 1개 이상이어야 합니다.");
+            }
+            item.setId(null);
+            item.setChargedPrice(null);
+        }
     }
 
     /**
