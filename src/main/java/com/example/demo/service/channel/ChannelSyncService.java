@@ -67,6 +67,15 @@ public class ChannelSyncService {
         return c;
     }
 
+    /** 실제 채널 API 를 호출하기 전에 쓴다. 연동이 꺼져 있거나 자격증명이 없으면 링크를 건드리기 전에 막는다. */
+    private SalesChannelConnector activeConnector(String channel) {
+        SalesChannelConnector c = connector(channel);
+        if (!c.isConfigured()) {
+            throw new ChannelApiException("판매채널 연동이 꺼져 있습니다: " + channel);
+        }
+        return c;
+    }
+
     private String normalize(String channel) {
         return channel == null ? "" : channel.trim().toUpperCase();
     }
@@ -91,7 +100,7 @@ public class ChannelSyncService {
      */
     public ChannelProductLink push(String channel, Long productId, List<Combination> comboOverride) {
         String ch = normalize(channel);
-        SalesChannelConnector conn = connector(ch);
+        SalesChannelConnector conn = activeConnector(ch);
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ChannelApiException("상품을 찾을 수 없습니다: " + productId));
         Product effective = applyComboOverride(product, comboOverride);
@@ -168,7 +177,7 @@ public class ChannelSyncService {
 
     public List<PushResult> applyChanges(String channel, List<Long> productIds) {
         String ch = normalize(channel);
-        SalesChannelConnector conn = connector(ch);
+        SalesChannelConnector conn = activeConnector(ch);
         List<PushResult> results = new ArrayList<>();
         for (Long id : productIds) {
             ChannelProductLink link = linkRepository.findByProductIdAndChannel(id, ch).orElse(null);
@@ -214,7 +223,7 @@ public class ChannelSyncService {
         if (!STATUS_SALE.equals(status) && !STATUS_SUSPENSION.equals(status)) {
             throw new ChannelApiException("지원하지 않는 상태입니다: " + targetStatus);
         }
-        SalesChannelConnector conn = connector(ch);
+        SalesChannelConnector conn = activeConnector(ch);
         ChannelProductLink link = linkRepository.findByProductIdAndChannel(productId, ch).orElse(null);
         if (link == null || link.getOriginProductNo() == null) {
             throw new ChannelApiException("아직 이 채널에 등록되지 않은 상품입니다. 먼저 전송해 주세요.");
@@ -255,7 +264,8 @@ public class ChannelSyncService {
             return;
         }
         SalesChannelConnector conn = connectors.get(normalize(link.getChannel()));
-        if (conn == null) {
+        // 연동이 꺼져 있으면 채널 상품은 사람이 직접 관리한다. 키오스크에서 상품을 지워도 손대지 않는다.
+        if (conn == null || !conn.isConfigured()) {
             return;
         }
         try {

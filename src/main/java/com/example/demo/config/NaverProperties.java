@@ -19,6 +19,13 @@ import lombok.Setter;
 @Setter
 public class NaverProperties {
 
+    /**
+     * 연동 사용 여부. 기본 false.
+     * 스마트스토어는 당분간 센터에서 직접 관리하므로, 자격증명이 채워져 있어도 이 값이 false 면
+     * 전송·동기화·상태 변경·상품 삭제 시 자동 판매중지 등 네이버 API 호출을 전부 하지 않는다.
+     */
+    private boolean enabled = false;
+
     /** 커머스API 애플리케이션 ID */
     private String clientId;
 
@@ -75,9 +82,10 @@ public class NaverProperties {
     /** 교환 배송비(원) */
     private Integer exchangeDeliveryFee = 6000;
 
-    /** 설정이 모두 채워져 실제 호출이 가능한 상태인지 */
+    /** 연동이 켜져 있고 자격증명이 채워져 실제 호출이 가능한 상태인지 */
     public boolean isConfigured() {
-        return clientId != null && !clientId.isBlank()
+        return enabled
+                && clientId != null && !clientId.isBlank()
                 && clientSecret != null && !clientSecret.isBlank();
     }
 
