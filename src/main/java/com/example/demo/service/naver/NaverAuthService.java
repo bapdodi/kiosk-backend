@@ -46,7 +46,7 @@ public class NaverAuthService {
             return cachedToken;
         }
         if (!props.isConfigured()) {
-            throw new IllegalStateException("네이버 커머스API 자격증명이 설정되지 않았습니다. (.env 의 NAVER_COMMERCE_CLIENT_ID/SECRET)");
+            throw new IllegalStateException("네이버 연동이 꺼져 있거나 자격증명이 없습니다. (.env 의 NAVER_INTEGRATION_ENABLED, NAVER_COMMERCE_CLIENT_ID/SECRET)");
         }
 
         long timestamp = now;

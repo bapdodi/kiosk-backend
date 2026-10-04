@@ -111,8 +111,10 @@ recommendation:
   cron: "0 30 3 * * *"    # 야간 재집계 시각
 
 # 네이버 커머스API(스마트스토어) 연동. 값은 backend/.env 로 주입한다. (미설정 시 연동 기능만 비활성)
+# NAVER_INTEGRATION_ENABLED 가 true 가 아니면 자격증명이 있어도 네이버 API 를 호출하지 않는다.
 naver:
   commerce:
+    enabled: ${NAVER_INTEGRATION_ENABLED:false}
     client-id: ${NAVER_COMMERCE_CLIENT_ID:}
     client-secret: ${NAVER_COMMERCE_CLIENT_SECRET:}
     base-url: ${NAVER_COMMERCE_BASE_URL:https://api.commerce.naver.com/external}

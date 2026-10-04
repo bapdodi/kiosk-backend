@@ -170,8 +170,13 @@ public class ChannelController {
     }
 
     @PostMapping("/sync/apply")
-    public List<ChannelSyncService.PushResult> syncApply(@PathVariable("channel") String channel,
+    public ResponseEntity<?> syncApply(@PathVariable("channel") String channel,
             @RequestBody List<Long> ids) {
-        return syncService.applyChanges(channel, ids);
+        try {
+            return ResponseEntity.ok(syncService.applyChanges(channel, ids));
+        } catch (RuntimeException e) {
+            log.warn("[{}] 동기화 반영 실패: {}", channel, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", String.valueOf(e.getMessage())));
+        }
     }
 }
