@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.demo.dto.ProductUpdateRequest;
 import com.example.demo.entity.Product;
 import com.example.demo.service.ProductCatalogCache;
 import com.example.demo.service.ProductService;
@@ -70,14 +71,8 @@ public class ProductController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    // 상품은 ERP 동기화로만 등록한다. 수동 생성 API는 의도적으로 비활성화한다.
-    // @PostMapping("/admin")
-    // public Product createProduct(@RequestBody Product product) {
-    //     return productService.createProduct(product);
-    // }
-
     @PutMapping("/admin/{id}")
-    public ResponseEntity<Product> updateProduct(@PathVariable("id") Long id, @RequestBody Product productDetails) {
+    public ResponseEntity<Product> updateProduct(@PathVariable("id") Long id, @RequestBody ProductUpdateRequest productDetails) {
         return productService.updateProduct(id, productDetails)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -135,7 +130,7 @@ public class ProductController {
     }
 
     @PutMapping("/admin/bulk-update")
-    public ResponseEntity<Void> updateProducts(@RequestBody List<Product> products) {
+    public ResponseEntity<Void> updateProducts(@RequestBody List<ProductUpdateRequest> products) {
         productService.updateProducts(products);
         return ResponseEntity.ok().build();
     }
