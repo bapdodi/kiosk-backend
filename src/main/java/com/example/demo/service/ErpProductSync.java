@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -26,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * ERP 품목(ITEM)을 키오스크 상품으로 반영한다.
  *
- * 같은 품명(공백 정규화)의 ERP 품목들을 한 상품으로 묶고, 품목이 여럿이면 규격(GYU)별 조합으로 만든다.
+ * 같은 품명(공백·영문 대소문자 정규화)의 ERP 품목들을 한 상품으로 묶고, 품목이 여럿이면 규격(GYU)별 조합으로 만든다.
  * 새 상품은 미분류로 들어가고, 기존 상품은 가격·재고·규격만 갱신한다(이름·분류는 관리자 수정을 존중).
  */
 @Service
@@ -376,10 +377,12 @@ public class ErpProductSync {
 
     private static Map<String, List<Map<String, Object>>> group(List<Map<String, Object>> erpItems) {
         Map<String, List<Map<String, Object>>> groupedItems = new LinkedHashMap<>();
+        Map<String, String> displayNames = new HashMap<>();
         for (Map<String, Object> itemRow : erpItems) {
             String name = normalizeName((String) itemRow.get("ITEM"));
             if (name == null || name.isEmpty() || NON_PRODUCT_ITEM_NAMES.contains(name)) continue;
-            groupedItems.computeIfAbsent(name, k -> new ArrayList<>()).add(itemRow);
+            String displayName = displayNames.computeIfAbsent(nameKey(name), k -> name);
+            groupedItems.computeIfAbsent(displayName, k -> new ArrayList<>()).add(itemRow);
         }
         return groupedItems;
     }
@@ -389,7 +392,7 @@ public class ErpProductSync {
     }
 
     /**
-     * 상품명 정규화: 앞뒤 공백 제거 + 내부 연속 공백을 하나로 축약.
+     * 상품명 표시 정규화: 앞뒤 공백 제거 + 내부 연속 공백을 하나로 축약.
      * ERP 의 "피비볼밸브  (M) 레바"(이중공백) 같은 표기 차이로 같은 상품이 중복 그룹되는 것을 막는다.
      */
     private static String normalizeName(String raw) {
@@ -398,12 +401,17 @@ public class ErpProductSync {
         return raw.trim().replaceAll("\\s+", " ");
     }
 
+    private static String nameKey(String name) {
+        String normalized = normalizeName(name);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
     /**
      * 기존 상품을 한 번에 불러와 ERP 코드·이름으로 찾는 색인. 예전엔 ERP 품목마다 DB 를 최대 3번
      * 조회해(약 5천 품목 × 3) 동기화 한 번에 30초 가까이 걸렸다.
      *
      * 찾는 순서: ① 묶음 안 ERP 코드마다 상품 erpCode → 조합 erpCode(숨긴 조합 포함) →
-     * ② 정규화된 이름. 휴지통 상품도 대상이다. 같은 코드에 상품이 여럿이면 id 가 가장 작은 상품을
+     * ② 정규화된 이름. 휴지통 상품도 대상이지만 살아 있는 상품·옵션을 우선한다. 같은 코드의 후보는 id 가 작은 상품을
      * 고르고, 이름으로만 찾는데 같은 이름이 여럿이면 고르지 않는다(ambiguous).
      * 매칭된 상품의 이름은 수동 변경을 존중해 덮어쓰지 않는다.
      */
@@ -425,13 +433,18 @@ public class ErpProductSync {
                 if (code.isEmpty())
                     continue;
                 Product byErp = first(byErpCode, code);
+                Product byCombo = first(byComboErpCode, code);
+                // 합친 뒤 휴지통에 남긴 개별 상품보다 현재 판매 중인 옵션의 소유자를 우선한다.
+                if (byErp != null && byErp.getDeletedAt() == null)
+                    return new Match(byErp, false);
+                if (byCombo != null && byCombo.getDeletedAt() == null)
+                    return new Match(byCombo, false);
                 if (byErp != null)
                     return new Match(byErp, false);
-                Product byCombo = first(byComboErpCode, code);
                 if (byCombo != null)
                     return new Match(byCombo, false);
             }
-            List<Product> sameName = byName.getOrDefault(normalizedName, List.of());
+            List<Product> sameName = byName.getOrDefault(nameKey(normalizedName), List.of());
             if (sameName.size() > 1) {
                 return new Match(null, true);
             }
@@ -453,7 +466,7 @@ public class ErpProductSync {
                     put(byComboErpCode, c.getErpCode(), product);
                 }
             }
-            put(byName, product.getName(), product);
+            put(byName, nameKey(product.getName()), product);
         }
 
         private static void put(Map<String, List<Product>> map, String key, Product product) {
@@ -468,7 +481,9 @@ public class ErpProductSync {
             List<Product> list = map.get(key);
             if (list == null || list.isEmpty())
                 return null;
-            return list.stream().min(Comparator.comparing(Product::getId)).orElse(null);
+            return list.stream().min(Comparator
+                    .comparing((Product p) -> p.getDeletedAt() != null)
+                    .thenComparing(Product::getId)).orElse(null);
         }
     }
 }

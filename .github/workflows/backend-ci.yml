@@ -27,7 +27,7 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build with Gradle
-      run: ./gradlew test --tests com.example.demo.controller.VisionErpSalesControllerTest bootJar
+      run: ./gradlew test --tests com.example.demo.controller.VisionErpSalesControllerTest --tests com.example.demo.ErpCaseGroupingTest bootJar
 
     - name: Login to Docker Hub
       if: github.event_name != 'pull_request'
