@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
  * ERP 품목(ITEM)을 키오스크 상품으로 반영한다.
  *
  * 같은 품명(공백·영문 대소문자 정규화)의 ERP 품목들을 한 상품으로 묶고, 품목이 여럿이면 규격(GYU)별 조합으로 만든다.
- * 새 상품은 미분류로 들어가고, 기존 상품은 가격·재고·규격만 갱신한다(이름·분류는 관리자 수정을 존중).
+ * 새 상품은 미분류로 들어가고, 기존 상품의 이름·가격·재고·규격은 ERP 기준으로 갱신한다. 키오스크 분류는 유지한다.
  */
 @Service
 @Slf4j
@@ -159,6 +159,7 @@ public class ErpProductSync {
                 product = newProduct(name, rows);
                 created++;
             } else {
+                product.setName(name);
                 applyBasePrices(product, rows.get(0));
                 // 기존 상품의 분류는 건드리지 않는다. 예전엔 수동 변경 안 한 상품을 매번 erp-N-0-0 으로
                 // 되돌렸는데, 그 카테고리는 더 이상 만들지 않아 상품이 화면에서 사라졌다.
@@ -252,7 +253,6 @@ public class ErpProductSync {
                 .categories(categories)
                 .hashtags(new ArrayList<>())
                 .images(new ArrayList<>())
-                .optionGroups(new ArrayList<>())
                 .combinations(new ArrayList<>())
                 .isCategoryModified(false)
                 .isComplexOptions(rows.size() > 1) // Multiple rows mean choices
@@ -413,7 +413,7 @@ public class ErpProductSync {
      * 찾는 순서: ① 묶음 안 ERP 코드마다 상품 erpCode → 조합 erpCode(숨긴 조합 포함) →
      * ② 정규화된 이름. 휴지통 상품도 대상이지만 살아 있는 상품·옵션을 우선한다. 같은 코드의 후보는 id 가 작은 상품을
      * 고르고, 이름으로만 찾는데 같은 이름이 여럿이면 고르지 않는다(ambiguous).
-     * 매칭된 상품의 이름은 수동 변경을 존중해 덮어쓰지 않는다.
+     * 매칭된 상품의 이름은 ERP의 정규화된 품명으로 갱신한다.
      */
     /** 찾은 상품. ambiguous 면 이름만 같은 상품이 여럿이라 고르지 않았다. */
     private record Match(Product product, boolean ambiguous) {}

@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import com.example.demo.dto.ProductUpdateRequest;
 import com.example.demo.entity.Product;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.demo.service.ProductCatalogCache;
@@ -49,22 +50,22 @@ class ProductCatalogCacheIT {
 
         Product target = products.get(0);
         Long id = target.getId();
-        String originalName = target.getName();
-        String changedName = originalName + " [캐시검증]";
+        String originalDescription = target.getDescription();
+        String changedDescription = "상품 설명 [캐시검증]";
 
-        assertThat(productCatalogCache.getCatalogJson()).contains(originalName);
+        assertThat(productCatalogCache.getCatalogJson()).contains(target.getName());
 
         try {
-            target.setName(changedName);
-            productService.updateProduct(id, target);
+            target.setDescription(changedDescription);
+            productService.updateProduct(id, objectMapper.convertValue(target, ProductUpdateRequest.class));
 
             // 커밋 이후 캐시가 비워지므로 다음 조회는 바뀐 이름을 보여준다.
-            assertThat(productCatalogCache.getCatalogJson()).contains(changedName);
+            assertThat(productCatalogCache.getCatalogJson()).contains(changedDescription);
         } finally {
-            jdbcTemplate.update("UPDATE products SET name = ? WHERE id = ?", originalName, id);
+            jdbcTemplate.update("UPDATE products SET description = ? WHERE id = ?", originalDescription, id);
             productCatalogCache.invalidate();
         }
 
-        assertThat(productCatalogCache.getCatalogJson()).doesNotContain(changedName);
+        assertThat(productCatalogCache.getCatalogJson()).doesNotContain(changedDescription);
     }
 }

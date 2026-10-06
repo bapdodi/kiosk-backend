@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 import com.example.demo.config.NaverProperties;
 import com.example.demo.entity.CategoryRef;
 import com.example.demo.entity.Combination;
-import com.example.demo.entity.OptionGroup;
 import com.example.demo.entity.Product;
 import com.example.demo.repository.CategoryRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -250,21 +249,13 @@ public class NaverProductMapper {
 
     /**
      * detailAttribute.optionInfo 구성.
-     * 1) ERP 복합옵션(combinations): combo.name("색상:빨강 / 사이즈:L")을 파싱해 조합형 옵션 생성.
-     * 2) 단순 optionGroups: 값들의 카티션 곱으로 조합 생성(추가금 0, 재고=단품재고).
+     * ERP 규격(combinations): combo.name("색상:빨강 / 사이즈:L")을 파싱해 조합형 옵션 생성.
      * 파싱이 애매하면 단일 그룹 "옵션" 으로 폴백한다.
      */
     private void addOptionInfo(ObjectNode detailAttribute, Product product) {
         List<Combination> combos = activeCombinations(product);
         if (!combos.isEmpty()) {
             ObjectNode optionInfo = buildOptionInfoFromCombinations(combos, product);
-            if (optionInfo != null) {
-                detailAttribute.set("optionInfo", optionInfo);
-            }
-            return;
-        }
-        if (product.getOptionGroups() != null && !product.getOptionGroups().isEmpty()) {
-            ObjectNode optionInfo = buildOptionInfoFromGroups(product.getOptionGroups(), product);
             if (optionInfo != null) {
                 detailAttribute.set("optionInfo", optionInfo);
             }
@@ -339,57 +330,6 @@ public class NaverProductMapper {
         }
         optionInfo.put("useStockManagement", true);
         return optionInfo;
-    }
-
-    private ObjectNode buildOptionInfoFromGroups(List<OptionGroup> groups, Product product) {
-        List<OptionGroup> usable = new ArrayList<>();
-        for (OptionGroup g : groups) {
-            if (g.getValues() != null && !g.getValues().isEmpty()) {
-                usable.add(g);
-            }
-        }
-        if (usable.isEmpty() || usable.size() > 4) {
-            return null;
-        }
-
-        ObjectNode optionInfo = objectMapper.createObjectNode();
-        ObjectNode groupNamesNode = optionInfo.putObject("optionCombinationGroupNames");
-        for (int i = 0; i < usable.size(); i++) {
-            groupNamesNode.put("optionGroupName" + (i + 1), usable.get(i).getName());
-        }
-
-        ArrayNode combosNode = optionInfo.putArray("optionCombinations");
-        int stockPer = product.getStock() != null ? product.getStock() : 0;
-        List<List<String>> product2 = cartesian(usable);
-        for (List<String> values : product2) {
-            ObjectNode combo = combosNode.addObject();
-            for (int i = 0; i < values.size(); i++) {
-                combo.put("optionName" + (i + 1), values.get(i));
-            }
-            combo.put("stockQuantity", stockPer);
-            combo.put("price", 0);
-            combo.put("usable", true);
-        }
-        optionInfo.put("useStockManagement", true);
-        return optionInfo;
-    }
-
-    /** optionGroups 값들의 카티션 곱. */
-    private List<List<String>> cartesian(List<OptionGroup> groups) {
-        List<List<String>> result = new ArrayList<>();
-        result.add(new ArrayList<>());
-        for (OptionGroup g : groups) {
-            List<List<String>> next = new ArrayList<>();
-            for (List<String> prefix : result) {
-                for (String value : g.getValues()) {
-                    List<String> combo = new ArrayList<>(prefix);
-                    combo.add(value);
-                    next.add(combo);
-                }
-            }
-            result = next;
-        }
-        return result;
     }
 
     /** 상세설명 HTML 구성: 설명 텍스트 + 이미지들. 네이버는 detailContent(HTML) 를 필수로 요구한다. */

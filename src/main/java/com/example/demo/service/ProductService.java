@@ -15,6 +15,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.demo.dto.ProductUpdateRequest;
+import com.example.demo.dto.ProductUpdateRequest.CombinationDisplayUpdate;
 import com.example.demo.entity.Combination;
 import com.example.demo.entity.Product;
 import com.example.demo.repository.CombinationRepository;
@@ -52,156 +54,41 @@ public class ProductService {
     }
 
     @Transactional
-    public Product createProduct(Product product) {
+    public Optional<Product> updateProduct(Long id, ProductUpdateRequest details) {
         productCatalogCache.invalidate();
-        if (product.getOptionGroups() != null) {
-            for (int i = 0; i < product.getOptionGroups().size(); i++) {
-                product.getOptionGroups().get(i).setProduct(product);
-                product.getOptionGroups().get(i).setSortOrder(i);
+        return productRepository.findById(id).map(product -> {
+            if (details.description() != null) product.setDescription(details.description());
+            if (details.categories() != null) {
+                if (!details.categories().equals(product.getCategories())) {
+                    product.setIsCategoryModified(true);
+                }
+                product.getCategories().clear();
+                product.getCategories().addAll(details.categories());
             }
-        }
-        if (product.getCombinations() != null) {
-            for (int i = 0; i < product.getCombinations().size(); i++) {
-                product.getCombinations().get(i).setProduct(product);
-                product.getCombinations().get(i).setSortOrder(i);
-            }
-        }
-        Product saved = productRepository.save(product);
-        if (renameProductImages(saved)) {
-            return productRepository.save(saved);
-        }
-        return saved;
+            if (details.hashtags() != null) product.setHashtags(details.hashtags());
+            if (details.images() != null) product.setImages(details.images());
+            if (details.optionImages() != null) product.setOptionImages(details.optionImages());
+            if (details.sortOrder() != null) product.setSortOrder(details.sortOrder());
+            applyCombinationDisplay(product, details.combinations());
+            renameProductImages(product);
+            return productRepository.save(product);
+        });
     }
 
-    @Transactional
-    public Optional<Product> updateProduct(Long id, Product productDetails) {
-        productCatalogCache.invalidate();
-        return productRepository.findById(id)
-                .map(product -> {
-                    product.setName(productDetails.getName());
-                    product.setDescription(productDetails.getDescription());
-
-                    java.util.Set<com.example.demo.entity.CategoryRef> newCategories = productDetails.getCategories() != null
-                            ? productDetails.getCategories()
-                            : new java.util.LinkedHashSet<>();
-
-                    boolean categoryChanged = !newCategories.equals(product.getCategories());
-                    if (categoryChanged) {
-                        product.setIsCategoryModified(true);
-                    }
-
-                    product.getCategories().clear();
-                    product.getCategories().addAll(newCategories);
-                    product.setPriceC(productDetails.getPriceC());
-                    product.setGyu(productDetails.getGyu());
-                    product.setOriginAreaCode(productDetails.getOriginAreaCode());
-                    product.setBrandName(productDetails.getBrandName());
-                    product.setHashtags(productDetails.getHashtags());
-                    product.setImages(productDetails.getImages());
-                    product.setOptionImages(productDetails.getOptionImages());
-                    product.setIsComplexOptions(productDetails.getIsComplexOptions());
-                    product.setSortOrder(productDetails.getSortOrder());
-
-                    product.getOptionGroups().clear();
-                    if (productDetails.getOptionGroups() != null) {
-                        for (int i = 0; i < productDetails.getOptionGroups().size(); i++) {
-                            com.example.demo.entity.OptionGroup group = productDetails.getOptionGroups().get(i);
-                            group.setProduct(product);
-                            group.setSortOrder(i);
-                            product.getOptionGroups().add(group);
-                        }
-                    }
-
-                    applyCombinations(product, productDetails.getCombinations());
-
-                    renameProductImages(product);
-                    return productRepository.save(product);
-                });
-    }
-
-    /**
-     * 상품 수정 저장 시 규격(조합)을 기존 row 에 맞춰 갱신한다.
-     *
-     * 예전에는 clear() 후 요청 본문의 인스턴스를 그대로 다시 넣었다. 그러면 id_db 가 없는 조합
-     * (수정 화면의 "옵션 조합 생성하기" 가 만드는 형태)이 새 row 로 INSERT 되고, 기존 row 는
-     * orphanRemoval 로 물리 삭제됐다. 규격에 걸린 옵션 사진 연결이 끊기고, 숨겨둔 규격까지
-     * 휴지통을 거치지 않고 사라진다.
-     *
-     * 그래서 id_db → ERP 코드 순으로 기존 row 를 찾아 재사용하고, 요청에 없는 기존 조합은
-     * 지우는 대신 숨김 처리해 휴지통에서 되살릴 수 있게 남긴다.
-     */
-    private void applyCombinations(Product product, List<Combination> incoming) {
-        List<Combination> existing = new java.util.ArrayList<>(product.getCombinations());
-
+    /** 기존 규격의 표시 설정만 수정한다. 요청에 없는 규격은 그대로 보존한다. */
+    private void applyCombinationDisplay(Product product, List<CombinationDisplayUpdate> incoming) {
+        if (incoming == null || product.getCombinations() == null) return;
         Map<Long, Combination> byId = new java.util.HashMap<>();
-        Map<String, Combination> byErpCode = new java.util.HashMap<>();
-        // ERP 코드가 없는 수동 규격은 이름으로만 같은 것인지 알아볼 수 있다.
-        // 수정 화면의 "옵션 조합 생성하기" 는 id_db 없는 조합을 만들기 때문에,
-        // 이름 매칭이 없으면 저장할 때마다 새 row 가 생기고 옛 row 가 숨김으로 쌓인다.
-        Map<String, Combination> byName = new java.util.HashMap<>();
-        for (Combination old : existing) {
-            if (old.getId_db() != null) {
-                byId.put(old.getId_db(), old);
-            }
-            if (old.getErpCode() != null) {
-                byErpCode.putIfAbsent(old.getErpCode(), old);
-            } else if (old.getName() != null) {
-                byName.putIfAbsent(old.getName(), old);
-            }
+        for (Combination combo : product.getCombinations()) {
+            if (combo.getId_db() != null) byId.put(combo.getId_db(), combo);
         }
-
-        List<Combination> next = new java.util.ArrayList<>();
-        Set<Long> reused = new LinkedHashSet<>();
-
-        if (incoming != null) {
-            for (int i = 0; i < incoming.size(); i++) {
-                Combination in = incoming.get(i);
-
-                Combination target = in.getId_db() != null ? byId.get(in.getId_db()) : null;
-                if (target == null && in.getErpCode() != null) {
-                    target = byErpCode.get(in.getErpCode());
-                }
-                if (target == null && in.getErpCode() == null && in.getName() != null) {
-                    target = byName.get(in.getName());
-                }
-                // 이미 다른 행에 배정된 기존 row 는 재사용하지 않는다(중복 ERP 코드 방어).
-                if (target != null && target.getId_db() != null && !reused.add(target.getId_db())) {
-                    target = null;
-                }
-
-                if (target != null) {
-                    target.setName(in.getName());
-                    target.setPriceC(in.getPriceC());
-                    target.setPriceA(in.getPriceA());
-                    target.setPriceB(in.getPriceB());
-                    target.setErpCode(in.getErpCode());
-                    target.setStock(in.getStock());
-                    target.setId(in.getId());
-                    target.setDeleted(Boolean.TRUE.equals(in.getDeleted()));
-                    target.setSortOrder(i);
-                    next.add(target);
-                } else {
-                    in.setProduct(product);
-                    in.setSortOrder(i);
-                    in.setDeleted(Boolean.TRUE.equals(in.getDeleted()));
-                    next.add(in);
-                }
-            }
+        Set<Long> updated = new LinkedHashSet<>();
+        for (CombinationDisplayUpdate settings : incoming) {
+            Combination target = byId.get(settings.id_db());
+            if (target == null || !updated.add(settings.id_db())) continue;
+            if (settings.deleted() != null) target.setDeleted(settings.deleted());
+            if (settings.sortOrder() != null) target.setSortOrder(settings.sortOrder());
         }
-
-        // 요청 본문에 없는 기존 조합은 물리 삭제하지 않고 숨김으로 남긴다.
-        int tail = next.size();
-        for (Combination old : existing) {
-            if (old.getId_db() == null || reused.contains(old.getId_db())) {
-                continue;
-            }
-            old.setDeleted(true);
-            old.setSortOrder(tail++);
-            next.add(old);
-        }
-
-        product.getCombinations().clear();
-        product.getCombinations().addAll(next);
     }
 
     private boolean renameProductImages(Product product) {
@@ -393,10 +280,10 @@ public class ProductService {
     }
 
     @Transactional
-    public void updateProducts(List<Product> products) {
+    public void updateProducts(List<ProductUpdateRequest> products) {
         productCatalogCache.invalidate();
-        for (Product productDetails : products) {
-            updateProduct(productDetails.getId(), productDetails);
+        for (ProductUpdateRequest productDetails : products) {
+            updateProduct(productDetails.id(), productDetails);
         }
     }
 

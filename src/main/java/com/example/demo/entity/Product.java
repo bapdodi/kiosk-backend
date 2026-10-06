@@ -138,11 +138,6 @@ public class Product {
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     @jakarta.persistence.OrderBy("sortOrder ASC")
     @org.hibernate.annotations.BatchSize(size = 500)
-    private List<OptionGroup> optionGroups;
-
-    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
-    @jakarta.persistence.OrderBy("sortOrder ASC")
-    @org.hibernate.annotations.BatchSize(size = 500)
     private List<Combination> combinations;
 
     @Column(nullable = false, length = 255)
