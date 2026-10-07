@@ -74,3 +74,25 @@ JEGO 와 일치하지 않아(경영박사가 유지하는 파생값), 임의로 
 별도 멱등 테이블은 필요 없습니다. 같은 요청의 중복 저장과 취소 대상은 원장 줄의 추적 태그(`BIGO2`)로 판단합니다.
 
 운영 배포는 `docker-compose.prod.yml` + Watchtower를 사용합니다.
+
+## 주문 도장 이벤트
+
+신규 주문 접수 시 ERP 고객 코드(상호 계정)별로 도장을 1개 적립한다.
+주문 완료 응답의 `stampCount`는 이번 판의 1~5개, `stampRewardEarned`는
+이번 주문에서 5개가 완성됐는지를 나타낸다. 6번째 주문은 새 판의 1개부터 시작한다.
+비회원 공용 계정(상호명 `1`)과 고객 사본에 없는 코드는 적립하지 않는다.
+브라우저가 바뀌어도 PostgreSQL의 `customer_stamp_accounts`에서 적립이 유지된다.
+기존 주문에는 소급 적립하지 않으며, 접수 후 취소/삭제해도 적립 카운터는 차감하지 않는다.
+
+`PUT /api/orders/admin/{id}/stamp-reward`는 실제 장갑을 건넨 뒤 지급 완료를 기록한다.
+5개 완성 주문만 가능하고 취소 주문은 제외하며, 재호출해도 중복 처리하지 않는다.
+관리자 주문 상세에서 지급 버튼을 누를 수 있다. 지급 상태는 해당 주문에 저장된다.
+
+배포 시 백엔드를 먼저 시작해 Flyway `V7__customer_order_stamps.sql`을 적용한 뒤
+프런트엔드를 갱신한다. 주문과 적립은 같은 트랜잭션이며, 같은 Idempotency-Key의
+재요청에는 원래 도장 결과를 반환한다.
+
+검증: `./gradlew test --tests '*Stamp*' --tests '*OrderServiceTest'`.
+실 PostgreSQL 동시성/롤백 테스트는 로컬 검증 DB에 연결하는
+`KIOSK_STAMP_DB_URL=jdbc:postgresql://localhost:5433/kiosk`를 설정해 실행한다.
+이 테스트는 고유 임시 스키마를 만들고 종료 시 제거한다.
