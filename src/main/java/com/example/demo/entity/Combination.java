@@ -42,6 +42,9 @@ public class Combination {
     private Integer stock;
     private Integer sortOrder;
 
+    /** 키오스크 화면 전용 표시 이름. null 이면 name 을 그대로 보여 준다. ERP 동기화는 건드리지 않는다. */
+    private String kioskName;
+
     /**
      * 소프트삭제 플래그. true 면 화면(키오스크/관리자)에서 숨기되 postgres 에는 그대로 보존한다.
      * 실제 row 를 지우지 않으므로 관리자 폼에서 복구할 수 있고, ERP 재동기화로도 되살아나지 않는다.

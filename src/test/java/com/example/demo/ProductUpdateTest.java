@@ -57,7 +57,7 @@ class ProductUpdateTest {
     }
 
     @Test
-    void 예전_화면의_ERP값과_브랜드_원산지는_수정하지_않는다() throws Exception {
+    void 상품명은_수정되지만_ERP값과_브랜드_원산지는_수정하지_않는다() throws Exception {
         ProductUpdateRequest request = mapper.readValue("""
                 {"name":"변경 이름","erpCode":"999","gyu":"99A","stock":1,
                  "priceA":1,"priceB":2,"priceC":3,"isComplexOptions":false,
@@ -66,7 +66,7 @@ class ProductUpdateTest {
                      "stock":1,"priceA":1,"priceB":2,"priceC":3,"deleted":true,"sortOrder":5}]}
                 """, ProductUpdateRequest.class);
         service.updateProduct(1L, request);
-        assertThat(product.getName()).isEqualTo("ERP 상품");
+        assertThat(product.getName()).isEqualTo("변경 이름");
         assertThat(product.getErpCode()).isEqualTo("100");
         assertThat(product.getGyu()).isEqualTo("15A");
         assertThat(product.getPriceA()).isEqualTo(1000);
@@ -118,7 +118,26 @@ class ProductUpdateTest {
     }
 
     @Test
-    void 동기화하면_상품명을_ERP품명으로_통일한다() {
+    void 키오스크_규격이름은_저장하고_빈값이면_ERP규격명으로_되돌린다() throws Exception {
+        service.updateProduct(1L, mapper.readValue("""
+                {"combinations":[{"id_db":10,"kioskName":"  연결관 15  "}]}
+                """, ProductUpdateRequest.class));
+        assertThat(spec.getKioskName()).isEqualTo("연결관 15");
+        assertThat(spec.getName()).isEqualTo("15A");
+
+        service.updateProduct(1L, mapper.readValue("""
+                {"combinations":[{"id_db":10,"deleted":false}]}
+                """, ProductUpdateRequest.class));
+        assertThat(spec.getKioskName()).isEqualTo("연결관 15");
+
+        service.updateProduct(1L, mapper.readValue("""
+                {"combinations":[{"id_db":10,"kioskName":""}]}
+                """, ProductUpdateRequest.class));
+        assertThat(spec.getKioskName()).isNull();
+    }
+
+    @Test
+    void 동기화해도_관리자가_바꾼_상품명은_유지한다() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(repository.findAll()).thenReturn(List.of(product));
         when(jdbc.queryForList(any(String.class))).thenReturn(List.of(Map.of(
@@ -127,7 +146,7 @@ class ProductUpdateTest {
         var sync = new ErpProductSync(jdbc, repository, service, mock(ErpCustomerSync.class), cache);
         var result = sync.syncProducts();
         assertThat(result.updated()).isEqualTo(1);
-        assertThat(product.getName()).isEqualTo("경영박사 상품");
+        assertThat(product.getName()).isEqualTo("ERP 상품");
         assertThat(product.getCategories()).containsExactly(new CategoryRef("cat", null));
         assertThat(product.getDescription()).isEqualTo("설명");
     }

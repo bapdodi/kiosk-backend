@@ -11,6 +11,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ProductUpdateRequest(
         Long id,
+        String name,
         String description,
         Set<CategoryRef> categories,
         List<String> hashtags,
@@ -19,7 +20,7 @@ public record ProductUpdateRequest(
         String sortOrder,
         List<CombinationDisplayUpdate> combinations) {
 
-    /** 규격 내용은 ERP가 관리하며, 키오스크에서는 순서와 숨김만 바꿀 수 있다. */
+    /** 규격 내용은 ERP가 관리하며, 키오스크에서는 순서·숨김·표시 이름만 바꿀 수 있다. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record CombinationDisplayUpdate(Long id_db, Boolean deleted, Integer sortOrder) {}
+    public record CombinationDisplayUpdate(Long id_db, Boolean deleted, Integer sortOrder, String kioskName) {}
 }

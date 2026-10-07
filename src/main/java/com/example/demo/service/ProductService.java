@@ -57,6 +57,7 @@ public class ProductService {
     public Optional<Product> updateProduct(Long id, ProductUpdateRequest details) {
         productCatalogCache.invalidate();
         return productRepository.findById(id).map(product -> {
+            if (details.name() != null && !details.name().isBlank()) product.setName(details.name().trim());
             if (details.description() != null) product.setDescription(details.description());
             if (details.categories() != null) {
                 if (!details.categories().equals(product.getCategories())) {
@@ -88,6 +89,11 @@ public class ProductService {
             if (target == null || !updated.add(settings.id_db())) continue;
             if (settings.deleted() != null) target.setDeleted(settings.deleted());
             if (settings.sortOrder() != null) target.setSortOrder(settings.sortOrder());
+            if (settings.kioskName() != null) {
+                // 빈 문자열은 "ERP 규격명으로 되돌리기".
+                String kioskName = settings.kioskName().trim();
+                target.setKioskName(kioskName.isEmpty() ? null : kioskName);
+            }
         }
     }
 
