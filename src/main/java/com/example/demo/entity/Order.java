@@ -34,6 +34,15 @@ public class Order {
     @Column(name = "request_id", unique = true, length = 64)
     private String requestId;
 
+    // 주문 당시 도장 결과. 재요청/조회 시에도 동일하게 반환한다.
+    private Integer stampCount;
+
+    @Column(nullable = false)
+    private boolean stampRewardEarned;
+
+    @Column(nullable = false)
+    private boolean stampRewardRedeemed;
+
     private String customerName;
 
     private String erpCustomerCode;

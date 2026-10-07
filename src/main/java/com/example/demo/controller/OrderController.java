@@ -59,6 +59,13 @@ public class OrderController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @PutMapping("/admin/{id}/stamp-reward")
+    public ResponseEntity<Order> redeemStampReward(@PathVariable("id") Long id) {
+        return orderService.redeemStampReward(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @DeleteMapping("/admin/{id}")
     public ResponseEntity<Void> deleteOrder(@PathVariable("id") Long id) {
         if (orderService.deleteOrder(id)) {

@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.ArrayList;
@@ -28,6 +29,7 @@ import com.example.demo.repository.ErpOrderOutboxRepository;
 import com.example.demo.repository.OrderRepository;
 import com.example.demo.repository.ProductRepository;
 import com.example.demo.service.OrderService;
+import com.example.demo.service.CustomerStampService;
 
 /** 인증 없이 열린 주문 접수 API 가 본문의 서버 소유 값을 믿지 않는지 본다. */
 class OrderServiceTest {
@@ -36,14 +38,16 @@ class OrderServiceTest {
     private ProductRepository products;
     private CombinationRepository combinations;
     private OrderService service;
+    private CustomerStampService stamps;
 
     @BeforeEach
     void setUp() {
         orders = mock(OrderRepository.class);
         products = mock(ProductRepository.class);
         combinations = mock(CombinationRepository.class);
+        stamps = mock(CustomerStampService.class);
         service = new OrderService(orders, products, combinations, mock(JdbcTemplate.class),
-                mock(ErpOrderOutboxRepository.class), mock(ApplicationEventPublisher.class));
+                mock(ErpOrderOutboxRepository.class), mock(ApplicationEventPublisher.class), stamps);
         when(orders.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
         when(combinations.findFirstByErpCodeAndDeletedFalse(anyString())).thenReturn(Optional.empty());
         when(products.findByErpCode("P-1"))
@@ -61,11 +65,17 @@ class OrderServiceTest {
         forged.setId(5L);
         forged.setStatus("completed");
         forged.setTotalAmount(1);
+        forged.setStampCount(5);
+        forged.setStampRewardEarned(true);
+        forged.setStampRewardRedeemed(true);
 
         Order saved = service.createOrder(forged, null);
 
         // id 가 남아 있으면 save() 가 5번 주문을 덮어쓴다.
         assertNull(saved.getId());
+        assertNull(saved.getStampCount());
+        assertEquals(false, saved.isStampRewardEarned());
+        assertEquals(false, saved.isStampRewardRedeemed());
         assertEquals("pending", saved.getStatus());
         OrderItem item = saved.getItems().get(0);
         assertNull(item.getId());
@@ -81,6 +91,16 @@ class OrderServiceTest {
         assertThrows(ResponseStatusException.class,
                 () -> service.createOrder(order(OrderItem.builder().erpCode("P-1").quantity(-3).build()), null));
         assertThrows(ResponseStatusException.class, () -> service.createOrder(order(), null));
+        verify(orders, never()).save(any(Order.class));
+    }
+
+    @Test
+    void 같은_주문_재시도는_도장을_중복_적립하지_않는다() {
+        Order existing = Order.builder().id(42L).stampCount(5).stampRewardEarned(true).build();
+        when(orders.findByRequestId("same-request")).thenReturn(Optional.of(existing));
+        Order result = service.createOrder(order(OrderItem.builder().erpCode("P-1").quantity(1).build()), "same-request");
+        assertEquals(existing, result);
+        verifyNoInteractions(stamps);
         verify(orders, never()).save(any(Order.class));
     }
 }

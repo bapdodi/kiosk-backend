@@ -34,6 +34,7 @@ public class OrderService {
     private final JdbcTemplate jdbcTemplate;
     private final ErpOrderOutboxRepository erpOrderOutboxRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final CustomerStampService customerStampService;
 
     public List<Order> getAllOrders() {
         // DB의 기본 반환 순서는 보장되지 않는다. 동시 주문도 안정적으로 보이도록 ID를 보조 정렬로 둔다.
@@ -70,6 +71,7 @@ public class OrderService {
             }
         }
         priceOrder(order);
+        customerStampService.award(order);
 
         Order savedOrder = orderRepository.save(order);
         orderRepository.flush();
@@ -95,6 +97,9 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "주문 품목이 없습니다.");
         }
         order.setId(null);
+        order.setStampCount(null);
+        order.setStampRewardEarned(false);
+        order.setStampRewardRedeemed(false);
         order.setStatus("pending");
         for (OrderItem item : order.getItems()) {
             if (item.getQuantity() != null && item.getQuantity() < 1) {
@@ -166,6 +171,17 @@ public class OrderService {
                     }
                     return saved;
                 });
+    }
+
+    /** 상품을 실제로 건넨 뒤 관리자가 누른다. 중복 클릭은 한 번만 지급 처리한다. */
+    @Transactional
+    public Optional<Order> redeemStampReward(Long id) {
+        jdbcTemplate.update("""
+                UPDATE orders SET stamp_reward_redeemed = true
+                WHERE id = ? AND stamp_reward_earned = true AND stamp_reward_redeemed = false
+                  AND status <> 'cancelled'
+                """, id);
+        return orderRepository.findById(id);
     }
 
     @Transactional
