@@ -102,75 +102,49 @@ public class ProductService {
         // 같은 원본 파일을 대표/옵션이 공유할 때 동일한 새 URL 로 매핑하기 위한 캐시.
         java.util.Map<String, String> renamedUrls = new java.util.HashMap<>();
 
-        // 1) 대표 이미지: {productId}-{n}.ext 로 정규화.
-        //    사진 순서를 바꾸면 목표 이름이 다른 사진이 지금 쓰고 있는 이름과 겹친다.
-        //    (예: [3,1,2] 로 재정렬하면 1-3 → 1-1 이 기존 1-1 을 덮어쓴다)
-        //    renameFile 은 copy + remove 라 덮어쓰기가 곧 사진 소실이므로,
-        //    이름이 바뀌어야 하는 파일을 먼저 고유 임시 이름으로 피신시킨 뒤(1단계)
-        //    최종 이름으로 옮긴다(2단계).
+        // 1) 대표 이미지: {productId}-{n}-{랜덤8자}.ext 로 정규화.
+        //    /uploads/ 응답은 Cloudflare·브라우저에 캐시되므로 파일명이 같으면 사진을 바꿔도 옛 사진이 보인다.
+        //    (순서를 바꾸면 한 칸은 옛 캐시, 한 칸은 새 파일이라 사진이 복사된 것처럼 보이기도 한다)
+        //    그래서 제 자리에 있는 사진은 이름을 유지하고, 바뀐 사진은 매번 새 이름을 받아 URL 이 달라지게 한다.
+        //    목표 이름이 항상 새 이름이라 다른 사진과 겹칠 일이 없다.
         if (product.getImages() != null && !product.getImages().isEmpty()) {
             java.util.List<String> images = product.getImages();
-            int n = images.size();
-            String[] oldNames = new String[n];
-            String[] targets = new String[n];
-            String[] temps = new String[n];
+            java.util.List<String> newUrls = new java.util.ArrayList<>();
 
-            for (int i = 0; i < n; i++) {
+            for (int i = 0; i < images.size(); i++) {
                 String url = images.get(i);
                 if (url == null || !url.contains("/uploads/")) {
+                    newUrls.add(url);
+                    continue;
+                }
+                if (renamedUrls.containsKey(url)) {
+                    // 같은 파일이 대표 이미지에 두 번 들어 있으면 먼저 옮긴 새 URL 로 맞춘다.
+                    newUrls.add(renamedUrls.get(url));
                     continue;
                 }
                 try {
                     String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
                     String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
+                    if (isInPlace(oldFileName, product.getId(), i + 1)) {
+                        newUrls.add(url);
+                        continue;
+                    }
                     String extension = oldFileName.contains(".")
                             ? oldFileName.substring(oldFileName.lastIndexOf("."))
                             : "";
-                    oldNames[i] = oldFileName;
-                    targets[i] = product.getId() + "-" + (i + 1) + extension;
-                } catch (Exception e) {
-                    oldNames[i] = null;
-                    targets[i] = null;
-                }
-            }
-
-            // 1단계: 이름이 달라져야 하는 파일만 임시 이름으로 옮겨 충돌을 없앤다.
-            // 이미 제 이름인 파일은 그대로 둔다(목표 이름은 인덱스마다 달라 서로 겹치지 않는다).
-            for (int i = 0; i < n; i++) {
-                if (oldNames[i] == null || oldNames[i].equals(targets[i])) {
-                    continue;
-                }
-                String tmpName = "tmp-" + java.util.UUID.randomUUID() + "-" + targets[i];
-                try {
-                    fileService.renameFile(oldNames[i], tmpName);
-                    temps[i] = tmpName;
-                } catch (Exception e) {
-                    temps[i] = null; // 실패 시 기존 이름을 그대로 유지한다
-                }
-            }
-
-            // 2단계: 임시 이름 → 최종 이름.
-            java.util.List<String> newUrls = new java.util.ArrayList<>();
-            for (int i = 0; i < n; i++) {
-                String url = images.get(i);
-                if (oldNames[i] == null || oldNames[i].equals(targets[i]) || temps[i] == null) {
-                    newUrls.add(url);
-                    continue;
-                }
-                try {
-                    fileService.renameFile(temps[i], targets[i]);
-                    String newUrl = fileService.getFileUrl(targets[i]);
+                    String target = product.getId() + "-" + (i + 1) + "-"
+                            + java.util.UUID.randomUUID().toString().substring(0, 8) + extension;
+                    // 원본이 없으면 renameFile 이 옛 이름을 돌려준다 — 없는 파일을 가리키지 않도록 URL 을 유지한다.
+                    if (!target.equals(fileService.renameFile(oldFileName, target))) {
+                        newUrls.add(url);
+                        continue;
+                    }
+                    String newUrl = fileService.getFileUrl(target);
                     renamedUrls.put(url, newUrl);
                     newUrls.add(newUrl);
                     changed = true;
                 } catch (Exception e) {
-                    // 최종 이동 실패: 임시 이름에 파일이 갇히지 않도록 원래 이름으로 되돌린다.
-                    try {
-                        fileService.renameFile(temps[i], oldNames[i]);
-                    } catch (Exception ignored) {
-                        // 되돌리기까지 실패하면 임시 이름에 남는다(로그 대신 URL 은 원본 유지).
-                    }
-                    newUrls.add(url);
+                    newUrls.add(url); // 실패 시 기존 이름을 그대로 유지한다
                 }
             }
             product.setImages(newUrls);
@@ -213,6 +187,11 @@ public class ProductService {
         }
 
         return changed;
+    }
+
+    /** 이미 {productId}-{n}.ext 또는 {productId}-{n}-{8자}.ext 이름이면 그 자리의 사진이다. */
+    private static boolean isInPlace(String fileName, Long productId, int position) {
+        return fileName.matches("^" + productId + "-" + position + "(-[0-9a-f]{8})?(\\.[^.]*)?$");
     }
 
     @Transactional
