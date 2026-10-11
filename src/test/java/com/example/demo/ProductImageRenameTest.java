@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import com.example.demo.dto.ProductUpdateRequest;
 import com.example.demo.entity.Product;
+import com.example.demo.entity.OptionImage;
 import com.example.demo.repository.CombinationRepository;
 import com.example.demo.repository.ProductRepository;
 import com.example.demo.service.FileService;
@@ -25,7 +26,7 @@ import com.example.demo.service.ProductCatalogCache;
 import com.example.demo.service.ProductService;
 import com.example.demo.service.channel.ChannelSyncService;
 
-/** 사진이 바뀌거나 순서가 바뀌면 URL 도 바뀌어야 CDN/브라우저 캐시가 옛 사진을 내주지 않는다. */
+/** 새 사진은 고유 URL 을 받고, 순서만 바꾸면 기존 URL 과 파일을 유지한다. */
 class ProductImageRenameTest {
     private FileService files;
     private ProductService service;
@@ -70,11 +71,13 @@ class ProductImageRenameTest {
     }
 
     @Test
-    void 순서를_바꾸면_옮겨진_사진만_새_URL을_받는다() throws Exception {
+    void 순서를_바꿔도_URL과_파일을_유지한다() throws Exception {
         List<String> saved = save("/uploads/8813-2-0a1b2c3d.png", "/uploads/8813-1-4e5f6a7b.png");
 
-        assertThat(saved.get(0)).matches("/uploads/8813-1-[0-9a-f]{8}\\.png").isNotEqualTo("/uploads/8813-1-4e5f6a7b.png");
-        assertThat(saved.get(1)).matches("/uploads/8813-2-[0-9a-f]{8}\\.png").isNotEqualTo("/uploads/8813-2-0a1b2c3d.png");
+        assertThat(saved).containsExactly("/uploads/8813-2-0a1b2c3d.png", "/uploads/8813-1-4e5f6a7b.png");
+        assertThat(save(saved.get(1), saved.get(0)))
+                .containsExactly("/uploads/8813-1-4e5f6a7b.png", "/uploads/8813-2-0a1b2c3d.png");
+        verify(files, never()).renameFile(anyString(), anyString());
     }
 
     @Test
@@ -82,5 +85,22 @@ class ProductImageRenameTest {
         when(files.renameFile(eq("ghost.png"), anyString())).thenReturn("ghost.png");
 
         assertThat(save("/uploads/ghost.png")).containsExactly("/uploads/ghost.png");
+    }
+
+    @Test
+    void 순서_변경_후에도_옵션이_공유하는_사진_URL을_유지한다() throws Exception {
+        String shared = "/uploads/8813-2-0a1b2c3d.png";
+        product.setOptionImages(new ArrayList<>(List.of(new OptionImage("규격", "20mm", shared))));
+
+        assertThat(save(shared, "/uploads/8813-1.jpg"))
+                .containsExactly(shared, "/uploads/8813-1.jpg");
+        assertThat(product.getOptionImages().get(0).getImageUrl()).isEqualTo(shared);
+        verify(files, never()).renameFile(anyString(), anyString());
+    }
+
+    @Test
+    void 사진_삭제로_순번이_당겨져도_파일을_복사하지_않는다() throws Exception {
+        assertThat(save("/uploads/8813-3.jpg")).containsExactly("/uploads/8813-3.jpg");
+        verify(files, never()).renameFile(anyString(), anyString());
     }
 }

@@ -104,8 +104,8 @@ public class ProductService {
 
         // 1) 대표 이미지: {productId}-{n}-{랜덤8자}.ext 로 정규화.
         //    /uploads/ 응답은 Cloudflare·브라우저에 캐시되므로 파일명이 같으면 사진을 바꿔도 옛 사진이 보인다.
-        //    (순서를 바꾸면 한 칸은 옛 캐시, 한 칸은 새 파일이라 사진이 복사된 것처럼 보이기도 한다)
-        //    그래서 제 자리에 있는 사진은 이름을 유지하고, 바뀐 사진은 매번 새 이름을 받아 URL 이 달라지게 한다.
+        //    이미 정규화한 사진은 순서와 관계없이 URL 을 유지한다. 순서는 images 배열로만 관리한다.
+        //    새로 업로드한 사진만 새 이름을 받아 캐시 충돌과 불필요한 파일 복사를 막는다.
         //    목표 이름이 항상 새 이름이라 다른 사진과 겹칠 일이 없다.
         if (product.getImages() != null && !product.getImages().isEmpty()) {
             java.util.List<String> images = product.getImages();
@@ -125,7 +125,7 @@ public class ProductService {
                 try {
                     String encodedFileName = url.substring(url.lastIndexOf("/") + 1);
                     String oldFileName = URLDecoder.decode(encodedFileName, StandardCharsets.UTF_8);
-                    if (isInPlace(oldFileName, product.getId(), i + 1)) {
+                    if (isNormalizedImage(oldFileName, product.getId())) {
                         newUrls.add(url);
                         continue;
                     }
@@ -189,9 +189,9 @@ public class ProductService {
         return changed;
     }
 
-    /** 이미 {productId}-{n}.ext 또는 {productId}-{n}-{8자}.ext 이름이면 그 자리의 사진이다. */
-    private static boolean isInPlace(String fileName, Long productId, int position) {
-        return fileName.matches("^" + productId + "-" + position + "(-[0-9a-f]{8})?(\\.[^.]*)?$");
+    /** 이미 정규화한 파일은 배열에서 위치가 바뀌어도 같은 사진이다. */
+    private static boolean isNormalizedImage(String fileName, Long productId) {
+        return fileName.matches("^" + productId + "-[1-9][0-9]*(-[0-9a-f]{8})?(\\.[^.]*)?$");
     }
 
     @Transactional
