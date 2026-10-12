@@ -402,6 +402,11 @@ public class ErpProductSync {
 
     private static String nameKey(String name) {
         String normalized = normalizeName(name);
+        // 확인된 ERP 오타만 별칭으로 처리한다. 괄호를 일반적으로 제거하면 다른 상품까지
+        // 합쳐질 수 있다. 50A(6815)를 나머지 규격과 묶어 수동 병합 후에도 유지한다.
+        if ("동관신설용장(멀티조인트))".equals(normalized)) {
+            normalized = "동관신설용장(멀티조인트)";
+        }
         return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     }
 

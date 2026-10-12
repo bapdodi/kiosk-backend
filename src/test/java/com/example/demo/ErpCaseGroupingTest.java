@@ -21,6 +21,7 @@ class ErpCaseGroupingTest {
                 new String[]{"백관파이프(k/S)","백관파이프(k/s)"},
                 new String[]{"스텐플랜지(20K)","스텐플랜지(20k)"},
                 new String[]{"철플랜지20K","철플랜지20k"},
+                new String[]{"동관신설용장(멀티조인트)","동관신설용장(멀티조인트))"},
                 new String[]{"SP캡","sp캡"})) {
             JdbcTemplate jdbc=mock(JdbcTemplate.class);
             ProductRepository repo=mock(ProductRepository.class);
@@ -47,6 +48,43 @@ class ErpCaseGroupingTest {
                 assertThat(target.getIsComplexOptions()).isTrue();
                 assertThat(old.getDeletedAt()).isNotNull();
             }
+        }
+    }
+    @Test
+    void copperJointAliasKeepsAllFiveSpecsWithoutMergingOtherProducts() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ProductRepository repo = mock(ProductRepository.class);
+        Product target = Product.builder().id(8589L).name("동관신설용장(멀티조인트)")
+                .combinations(new ArrayList<>()).build();
+        Product archived = Product.builder().id(9395L).name("동관신설용장(멀티조인트))")
+                .erpCode("6815").deletedAt(Instant.now()).combinations(new ArrayList<>()).build();
+        Combination fifty = Combination.builder().id_db(999L).id("6815").erpCode("6815")
+                .product(target).name("50A").stock(0).deleted(false).build();
+        target.getCombinations().add(fifty);
+        Product other = Product.builder().id(8734L).name("동관신설용단(멀티조인트)")
+                .erpCode("1267").combinations(new ArrayList<>()).build();
+        when(repo.findAll()).thenReturn(List.of(archived, target, other));
+        when(jdbc.queryForList(anyString())).thenReturn(List.of(
+                row(5222, target.getName(), "25A"), row(6813, target.getName(), "32A"),
+                row(6814, target.getName(), "40A"), row(6815, archived.getName(), "50A"),
+                row(6816, target.getName(), "65A"), row(1267, other.getName(), "28.58")));
+        var sync = new ErpProductSync(jdbc, repo, mock(ProductService.class),
+                mock(ErpCustomerSync.class), mock(ProductCatalogCache.class));
+        assertThat(sync.previewProducts()).hasSize(2);
+        for (int i = 0; i < 3; i++) {
+            var result = sync.syncProducts();
+            assertThat(result.created()).isZero();
+            assertThat(result.updated()).isEqualTo(2);
+            assertThat(result.duplicate()).isEmpty();
+            assertThat(target.getCombinations()).hasSize(5).allMatch(c -> !c.getDeleted());
+            assertThat(target.getCombinations()).contains(fifty);
+            assertThat(fifty.getId_db()).isEqualTo(999L);
+            assertThat(fifty.getPriceA()).isEqualTo(100);
+            assertThat(fifty.getPriceB()).isEqualTo(200);
+            assertThat(fifty.getPriceC()).isEqualTo(300);
+            assertThat(target.getName()).isEqualTo("동관신설용장(멀티조인트)");
+            assertThat(other.getErpCode()).isEqualTo("1267");
+            assertThat(archived.getDeletedAt()).isNotNull();
         }
     }
     @Test
