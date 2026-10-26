@@ -110,7 +110,8 @@ class ProductUpdateTest {
                     {"id_db":999,"name":"새 규격","deleted":true}]}
                 """, ProductUpdateRequest.class);
         service.updateProduct(1L, request);
-        assertThat(product.getCombinations()).containsExactly(spec, extra);
+        // 저장 응답은 바뀐 순서(sortOrder)대로 내려간다.
+        assertThat(product.getCombinations()).containsExactly(extra, spec);
         assertThat(spec.getDeleted()).isFalse();
         assertThat(spec.getSortOrder()).isEqualTo(2);
         assertThat(extra.getDeleted()).isFalse();

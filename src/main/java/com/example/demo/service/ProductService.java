@@ -95,6 +95,9 @@ public class ProductService {
                 target.setKioskName(kioskName.isEmpty() ? null : kioskName);
             }
         }
+        // @OrderBy 는 조회할 때만 정렬한다. 저장 응답도 새 순서로 내려야 관리자 화면이 옛 순서를 다시 보여 주지 않는다.
+        product.getCombinations().sort(java.util.Comparator.comparing(Combination::getSortOrder,
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
     }
 
     private boolean renameProductImages(Product product) {
