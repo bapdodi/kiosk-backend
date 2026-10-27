@@ -2,6 +2,7 @@ package com.example.demo.controller;
 
 import java.util.Map;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,8 +12,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.demo.service.ErpReceivingService;
+import com.example.demo.service.ErpStatementService;
 import com.example.demo.service.ErpReceivingService.VoucherRequest;
 
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 public class ErpReceivingController {
 
     private final ErpReceivingService erpReceivingService;
+    private final ErpStatementService erpStatementService;
 
     @GetMapping("/status")
     public ResponseEntity<?> status() {
@@ -89,6 +93,18 @@ public class ErpReceivingController {
     @PostMapping("/preview")
     public ResponseEntity<?> preview(@RequestBody VoucherRequest request) {
         return handle(() -> erpReceivingService.preview(request));
+    }
+
+    /** 거래명세서 PDF/사진을 읽어 입고 격자에 채울 초안을 돌려준다. ERP 에는 쓰지 않는다. */
+    @PostMapping(value = "/statement", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> statement(@RequestParam("file") MultipartFile file) {
+        return handle(() -> erpStatementService.parse(file));
+    }
+
+    /** 저장한 명세서에서 거래처/품명 짝을 배운다. 맞게 제안했는지, 고쳤는지가 모두 학습된다. */
+    @PostMapping("/statement/learn")
+    public ResponseEntity<?> learnStatement(@RequestBody ErpStatementService.LearnRequest request) {
+        return handle(() -> erpStatementService.learn(request));
     }
 
     @PostMapping("/orders/preview")
