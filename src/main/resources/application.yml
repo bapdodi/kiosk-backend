@@ -101,6 +101,9 @@ erp:
     stock-mode: ${ERP_RECEIVING_STOCK_MODE:NONE}
     # 월마감된 과거 전표를 건드리지 않도록 입고일자를 오늘 기준 ±N일로 제한한다.
     date-window-days: ${ERP_RECEIVING_DATE_WINDOW_DAYS:7}
+    # 거래명세서 OCR 서비스(statement-ocr/) 주소. 비어 있으면 명세서 올리기는 꺼진다.
+    statement-ocr-url: ${ERP_STATEMENT_OCR_URL:}
+    statement-ocr-timeout-seconds: ${ERP_STATEMENT_OCR_TIMEOUT_SECONDS:600}
 
 # 동시구매 추천. ERP 거래이력(ILxx)을 야간에 집계해 reco_item_pair 에 적재한다.
 recommendation:

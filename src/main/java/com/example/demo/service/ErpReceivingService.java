@@ -34,9 +34,10 @@ import lombok.extern.slf4j.Slf4j;
  * 경영박사 재계산에 덮인다. 복제본에서 경영박사 입고 1건의 before/after 를 대조해
  * 확정한 뒤에만 erp.receiving.stock-mode 로 켠다.
  *
- * TODO(거래명세서 자동 입력, 이어서 할 작업): 매입처 거래명세서 PDF 를 올리면 읽어서
- * 이 화면의 거래처·품목 줄을 채우고, 사람이 확인한 뒤 기존 preview → createVoucher 로
- * 등록하게 만든다. 2026-09-23 로컬 DR_ERP 에서 확인한 사실:
+ * 거래명세서 자동 입력: 명세서를 올리면 ErpStatementService 가 OCR 서비스(statement-ocr/)로 읽어
+ * 이 화면의 거래처·품목 줄을 채우고, 사람이 확인한 뒤 기존 preview → createVoucher 로 등록한다.
+ * 아직 안 한 것(TODO): 확정한 품명 짝 저장(별칭), 단가 M당 환산, 반품(음수) 줄, OCR 이 안 될 때의 LLM 대체.
+ * 2026-09-23 로컬 DR_ERP 에서 확인한 사실:
  * - 매입처 거래는 KIND=13(발주)이 먼저 찍히고 명세서가 오면 KIND=4(매입)로 다시 들어간다.
  *   명세서 줄은 같은 거래처의 최근 KIND=13 발주 줄과 먼저 대조한다.
  * - 명세서 품명은 ERP 품명과 다르다(예: "일반배관용 강관 304 NH (40S u)42.7x1.2x6000" =
@@ -44,7 +45,7 @@ import lombok.extern.slf4j.Slf4j;
  * - 파이프 명세서 단가는 M당이다. 수량은 본이고 ERP 단가는 공급가액 ÷ 수량(= M당 × 6)이다.
  * - 명세서 세액은 GUM/10 과 1원씩 다를 수 있다. 막지 말고 경고만 한다.
  * - GURAE.SAUP(사업자번호)는 매입처 172곳 중 6곳만 채워져 있어 거래처는 상호로 맞춘다.
- * 추출은 PDF 텍스트 → CPU OCR → 검산 실패 시에만 LLM(Gemini) 순서로 한다.
+ * 추출은 CPU OCR 이 먼저이고, OCR 로 안 되는 양식이 나오면 그때 LLM 을 붙인다.
  */
 @Service
 @Slf4j
