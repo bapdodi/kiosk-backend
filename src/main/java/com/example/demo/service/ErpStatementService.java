@@ -158,7 +158,7 @@ public class ErpStatementService {
         for (Map<String, Object> draft : drafts) {
             if (draft.get("vendorCode") == null) {
                 // 상호도 사업자번호도 안 맞으면(명세서 "JK건축자재" = ERP "제이케이건축자재") 단가가 겹치는 거래처로 추정한다.
-                if (prices == null) prices = pricesByVendor();
+                if (prices == null) prices = pricesByVendor(vendors);
                 List<Long> rowPrices = new ArrayList<>();
                 for (Map<String, Object> l : (List<Map<String, Object>>) draft.get("lines")) rowPrices.add(((Number) l.get("price")).longValue());
                 String code = vendorByPrices(prices, rowPrices);
@@ -178,7 +178,10 @@ public class ErpStatementService {
     }
 
     /** 거래처별로 올해와 작년의 매입/발주에서 쓴 단가 집합. 상호로 거래처를 못 찾았을 때만 읽는다. */
-    private Map<String, java.util.Set<Long>> pricesByVendor() {
+    private Map<String, java.util.Set<Long>> pricesByVendor(List<Map<String, String>> vendors) {
+        // 입고 거래처(DANGA=1)끼리만 비교한다. 매출 거래처가 같은 단가를 쓰면 1등이 2등의 두 배가 못 돼 추정이 막혔다.
+        Set<String> purchase = new HashSet<>();
+        for (Map<String, String> v : vendors) purchase.add(v.get("code"));
         Map<String, java.util.Set<Long>> out = new java.util.HashMap<>();
         int thisYear = LocalDate.now().getYear();
         for (int year = thisYear - 1; year <= thisYear; year++) {
@@ -187,7 +190,10 @@ public class ErpStatementService {
             if (exists == null || exists == 0) continue;
             erp.query("SELECT DISTINCT CUST, CAST(PRICE AS bigint) AS price FROM " + table
                     + " WHERE KIND IN (4, 13) AND PRICE >= 100",
-                    rs -> { out.computeIfAbsent(String.valueOf(rs.getInt("CUST")), k -> new java.util.HashSet<>()).add(rs.getLong("price")); });
+                    rs -> {
+                        String code = String.valueOf(rs.getInt("CUST"));
+                        if (purchase.contains(code)) out.computeIfAbsent(code, k -> new java.util.HashSet<>()).add(rs.getLong("price"));
+                    });
         }
         return out;
     }
@@ -258,8 +264,15 @@ public class ErpStatementService {
             for (Map<String, String> v : vendors) if (!v.get("saup").isEmpty() && v.get("saup").equals(digits)) return v;
         }
         String text = normalize(header);
+        String raw = header == null ? "" : header.replaceAll("\\s", "");
         return vendors.stream()
-                .filter(v -> normalize(v.get("name")).length() >= 3 && text.contains(normalize(v.get("name"))))
+                .filter(v -> {
+                    String n = normalize(v.get("name"));
+                    if (n.length() >= 3) return text.contains(n);
+                    // 두 글자 상호("지엔")는 아무 글자에나 들어 있을 수 있어서, 법인 표기가 바로 붙은 경우만 인정한다.
+                    return n.length() == 2 && (raw.contains("주식회사" + n) || raw.contains("(주)" + n) || raw.contains("㈜" + n)
+                            || raw.contains(n + "(주)") || raw.contains(n + "주식회사"));
+                })
                 .max(Comparator.comparingInt(v -> normalize(v.get("name")).length()))
                 .orElse(null);
     }
@@ -378,6 +391,35 @@ public class ErpStatementService {
         long ea = Math.round(qty * f), amount = ((Number) line.get("amount")).longValue();
         if (ea < 1 || amount % ea != 0) return;
         candidate.put("ea", ea); candidate.put("price", amount / ea); candidate.put("converted", true);
+    }
+
+    public record RematchLine(String name, Long ea, Long price, Long amount) {}
+
+    public record RematchRequest(Integer vendorCode, List<RematchLine> lines) {}
+
+    /**
+     * 거래처를 못 찾아 후보가 없던 초안에서 사람이 거래처를 고르면, 그 거래처로 줄들의 후보를 다시 계산한다.
+     * 읽은 값(품명, 수량, 단가, 금액)만 받아 돌려주므로 ERP 에는 아무것도 쓰지 않는다.
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> rematch(RematchRequest req) {
+        if (req == null || req.vendorCode() == null) throw new IllegalArgumentException("거래처가 없습니다.");
+        List<RematchLine> in = req.lines() == null ? List.of() : req.lines();
+        if (in.size() > 300) throw new IllegalArgumentException("한 번에 300줄까지 다시 맞춥니다.");
+        Integer vendor = erp.queryForObject("SELECT COUNT(*) FROM GURAE WHERE CODE = ?", Integer.class, req.vendorCode());
+        if (vendor == null || vendor == 0) throw new IllegalArgumentException("ERP 에 없는 거래처입니다: " + req.vendorCode());
+        List<Map<String, Object>> lines = new ArrayList<>();
+        for (RematchLine l : in) {
+            if (l == null || l.name() == null || l.ea() == null || l.price() == null || l.amount() == null) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", l.name()); m.put("ea", l.ea()); m.put("price", l.price()); m.put("amount", l.amount());
+            lines.add(m);
+        }
+        Map<String, Object> draft = new LinkedHashMap<>();
+        draft.put("vendorCode", req.vendorCode());
+        draft.put("lines", lines);
+        matchItems(draft);
+        return lines;
     }
 
     // ── 학습(별칭) ──────────────────────────────────────────────────────────

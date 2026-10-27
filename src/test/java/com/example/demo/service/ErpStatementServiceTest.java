@@ -201,4 +201,24 @@ class ErpStatementServiceTest {
         // 스리브/슬리브 표기가 달라도 글자쌍이 겹쳐 점수가 붙는다
         assertTrue(ErpStatementService.score("스리브고무링 35", 360, "슬리브고무링VG2 35A", 9999) > 0);
     }
+
+    @Test
+    void twoLetterVendorNameNeedsACompanyMarkerRightNextToIt() {
+        // "주식회사 지엔" 은 법인 표기를 빼면 "지엔" 두 글자라 예전에는 아무 헤더에서도 못 찾았다
+        List<Map<String, String>> vendors = List.of(Map.of("code", "1352", "name", "주식회사 지엔", "saup", ""));
+        assertEquals("1352", ErpStatementService.matchVendor(vendors, List.of(), "호 주식회사지엔 성명 이명용").get("code"));
+        assertEquals("1352", ErpStatementService.matchVendor(vendors, List.of(), "상호 (주) 지엔 대표").get("code"));
+        // 법인 표기 없이 "지엔" 만 우연히 들어 있으면 거래처로 보지 않는다
+        assertNull(ErpStatementService.matchVendor(vendors, List.of(), "배관 지엔 규격 80A"));
+    }
+
+    @Test
+    void rematchRejectsUnknownVendorAndTooManyLines() {
+        when(erp.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(0);
+        ErpStatementService svc = new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, "", 600);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> svc.rematch(new ErpStatementService.RematchRequest(999, List.of())));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> svc.rematch(new ErpStatementService.RematchRequest(null, List.of())));
+    }
 }

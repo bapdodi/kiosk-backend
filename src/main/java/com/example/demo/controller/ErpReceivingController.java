@@ -107,6 +107,12 @@ public class ErpReceivingController {
         return handle(() -> erpStatementService.learn(request));
     }
 
+    /** 거래처를 사람이 고른 뒤, 그 거래처로 명세서 줄들의 후보를 다시 계산한다. ERP 에는 쓰지 않는다. */
+    @PostMapping("/statement/rematch")
+    public ResponseEntity<?> rematchStatement(@RequestBody ErpStatementService.RematchRequest request) {
+        return handle(() -> erpStatementService.rematch(request));
+    }
+
     @PostMapping("/orders/preview")
     public ResponseEntity<?> previewOrder(@RequestBody VoucherRequest request) {
         return handle(() -> erpReceivingService.previewOrder(request));
