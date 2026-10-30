@@ -123,4 +123,38 @@ class ErpCaseGroupingTest {
         assertThat(sync.syncProducts(Set.of("200")).removalSkipped()).isNull();
         assertThat(sync.previewProducts()).isEmpty();
     }
+    @Test
+    void secondErpNameOnAMergedProductKeepsItsSpecsPricedAndVisible() {
+        JdbcTemplate jdbc=mock(JdbcTemplate.class);
+        ProductRepository repo=mock(ProductRepository.class);
+        Product merged=Product.builder().id(1L).name("스텐점검구").isComplexOptions(true).combinations(new ArrayList<>()).build();
+        Combination flat1=Combination.builder().id("100").erpCode("100").name("300*300").product(merged).deleted(false).stock(2).build();
+        Combination flat2=Combination.builder().id("101").erpCode("101").name("400*400").product(merged).deleted(false).stock(2).build();
+        Combination lip=Combination.builder().id("200").erpCode("200").name("300*300 턱").product(merged).deleted(false).stock(2).priceC(999).build();
+        Combination hidden=Combination.builder().id("201").erpCode("201").name("400*400 턱").product(merged).deleted(true).stock(2).build();
+        merged.getCombinations().addAll(List.of(flat1,flat2,lip,hidden));
+        Product single=Product.builder().id(2L).name("십자카플링").erpCode("300").combinations(new ArrayList<>()).build();
+        Combination leftover=Combination.builder().id("400").erpCode("400").name("왕").product(single).deleted(true).stock(0).build();
+        single.getCombinations().add(leftover);
+        when(repo.findAll()).thenReturn(List.of(merged,single));
+        when(jdbc.queryForList(anyString())).thenReturn(List.of(
+                row(100,"스텐점검구 (턱없음)","300*300"),row(101,"스텐점검구 (턱없음)","400*400"),
+                row(200,"스텐점검구(턱있음)","300*300 턱"),row(201,"스텐점검구(턱있음)","400*400 턱"),
+                row(202,"스텐점검구(턱있음)","500*500 턱"),
+                row(300,"십자카플링","15A"),row(400,"슬림카플링","왕")));
+        var sync=new ErpProductSync(jdbc,repo,mock(ProductService.class),mock(ErpCustomerSync.class),mock(ProductCatalogCache.class));
+        for(int i=0;i<2;i++) {
+            var result=sync.syncProducts();
+            assertThat(result.created()).isZero();
+            // 턱있음의 처음 보는 규격(202)은 붙이지 않고, 단일 규격 상품에 걸린 슬림카플링은 예전처럼 건너뛴다.
+            assertThat(result.duplicate()).containsExactly("스텐점검구(턱있음)","슬림카플링");
+            assertThat(lip.getDeleted()).isFalse();
+            assertThat(lip.getPriceC()).isEqualTo(300);
+            assertThat(hidden.getDeleted()).isTrue(); // 숨긴 규격은 되살리지 않는다
+            assertThat(merged.getCombinations()).extracting(Combination::getErpCode).containsExactlyInAnyOrder("100","101","200","201");
+            assertThat(single.getErpCode()).isEqualTo("300");
+            assertThat(single.getIsComplexOptions()).isFalse();
+            assertThat(sync.previewProducts()).isEmpty();
+        }
+    }
 }
