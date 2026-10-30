@@ -97,4 +97,30 @@ class ErpCaseGroupingTest {
         var sync=new ErpProductSync(jdbc,repo,mock(ProductService.class),mock(ErpCustomerSync.class),mock(ProductCatalogCache.class));
         assertThat(sync.previewProducts()).singleElement().satisfies(p -> assertThat(p.existing()).isTrue());
     }
+    @Test
+    void previewListsOnlyGroupsTheSyncWouldChange() {
+        JdbcTemplate jdbc=mock(JdbcTemplate.class);
+        ProductRepository repo=mock(ProductRepository.class);
+        Product simple=Product.builder().id(1L).name("나선호스").combinations(new ArrayList<>()).build();
+        Product complex=Product.builder().id(2L).name("백용접티").combinations(new ArrayList<>()).build();
+        when(repo.findAll()).thenReturn(List.of(simple,complex));
+        List<Map<String,Object>> erp=new ArrayList<>(List.of(row(100,"나선호스","50mm"),
+                row(200,"백용접티","25A"),row(201,"백용접티","32A")));
+        when(jdbc.queryForList(anyString())).thenAnswer(inv -> erp);
+        var sync=new ErpProductSync(jdbc,repo,mock(ProductService.class),mock(ErpCustomerSync.class),mock(ProductCatalogCache.class));
+        assertThat(sync.previewProducts()).hasSize(2);
+        sync.syncProducts();
+        assertThat(sync.previewProducts()).isEmpty();
+
+        Map<String,Object> cheaper=new HashMap<>(row(201,"백용접티","32A"));
+        cheaper.put("OUTC",250);
+        erp.set(2,cheaper);
+        assertThat(sync.previewProducts()).singleElement().satisfies(p -> {
+            assertThat(p.name()).isEqualTo("백용접티");
+            assertThat(p.changes()).containsExactly("32A: C단가 300→250");
+        });
+        // 바뀌는 묶음만 골라 반영해도 전체 반영으로 본다(ERP 에서 사라진 품목 정리가 멈추지 않는다).
+        assertThat(sync.syncProducts(Set.of("200")).removalSkipped()).isNull();
+        assertThat(sync.previewProducts()).isEmpty();
+    }
 }

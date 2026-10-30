@@ -70,7 +70,8 @@ public class ErpProductSync {
         this.productCatalogCache = productCatalogCache;
     }
 
-    public record ErpProductPreview(String syncKey, String name, boolean existing) {}
+    /** changes: 동기화하면 바뀌는 내용(사람이 읽는 문장). 바뀔 게 없는 묶음은 미리보기에 넣지 않는다. */
+    public record ErpProductPreview(String syncKey, String name, boolean existing, List<String> changes) {}
 
     /**
      * 동기화 결과 요약.
@@ -87,18 +88,27 @@ public class ErpProductSync {
         }
     }
 
-    /** ERP 상품을 상품 단위로 미리 보여준다. syncKey 는 선택 반영 시 해당 ERP 상품 묶음을 식별한다. */
+    /**
+     * 동기화하면 바뀌는 ERP 상품 묶음만 무엇이 바뀌는지와 함께 보여준다. syncKey 는 선택 반영 시 묶음을 식별한다.
+     * 반영해도 건너뛰는 묶음(이름 중복·같은 상품에 걸린 품명)은 바뀌지 않으므로 넣지 않는다.
+     */
     @Transactional(readOnly = true)
     public List<ErpProductPreview> previewProducts() {
         ProductIndex index = new ProductIndex(productRepository.findAll());
+        Set<Product> claimed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         List<ErpProductPreview> previews = new ArrayList<>();
         for (Map.Entry<String, List<Map<String, Object>>> entry : groupedErpItems().entrySet()) {
             List<Map<String, Object>> rows = entry.getValue();
-            Product existing = index.find(rows, entry.getKey()).product();
+            Match match = index.find(rows, entry.getKey());
+            Product existing = match.product();
+            if (match.ambiguous() || (existing != null && !claimed.add(existing))) continue;
+            List<String> changes = existing == null ? List.of("신규 상품 등록") : changes(existing, rows);
+            if (changes.isEmpty()) continue;
             previews.add(new ErpProductPreview(
                     syncKey(rows),
                     existing == null ? entry.getKey() : existing.getName(),
-                    existing != null));
+                    existing != null,
+                    changes));
         }
         return previews;
     }
@@ -136,10 +146,7 @@ public class ErpProductSync {
         for (Map.Entry<String, List<Map<String, Object>>> entry : groupedItems.entrySet()) {
             String name = entry.getKey();
             List<Map<String, Object>> rows = entry.getValue();
-            if (selectedSyncKeys != null && !selectedSyncKeys.contains(syncKey(rows))) {
-                coversAll = false;
-                continue;
-            }
+            boolean selected = selectedSyncKeys == null || selectedSyncKeys.contains(syncKey(rows));
 
             Match match = index.find(rows, name);
             if (match.ambiguous()) {
@@ -152,6 +159,14 @@ public class ErpProductSync {
             if (product != null && !claimed.add(product)) {
                 // 앞선 ERP 품명이 이미 이 상품을 갱신했다. 두 번째가 덮어쓰면 규격·가격이 뒤섞인다.
                 duplicate.add(name);
+                continue;
+            }
+            if (!selected) {
+                // 미리보기는 바뀌는 묶음만 보여준다. 바뀔 게 없어 목록에 없던 묶음은 빠져도 전체 반영으로 보고,
+                // 바뀔 게 있는데 선택에서 뺐을 때만 ERP 에서 사라진 품목 정리를 멈춘다.
+                if (product == null || !changes(product, rows).isEmpty()) {
+                    coversAll = false;
+                }
                 continue;
             }
             boolean isNew = product == null;
@@ -265,7 +280,7 @@ public class ErpProductSync {
         product.setPriceB(ErpValues.toInteger(firstRow.get("OUTB")));
     }
 
-    private List<Combination> toCombinations(Product product, List<Map<String, Object>> rows) {
+    private static List<Combination> toCombinations(Product product, List<Map<String, Object>> rows) {
         List<Combination> combinations = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             String erpCode = String.valueOf(row.get("CODE"));
@@ -368,6 +383,79 @@ public class ErpProductSync {
 
         product.getCombinations().clear();
         product.getCombinations().addAll(next);
+    }
+
+    /**
+     * 이 ERP 묶음으로 동기화하면 상품에서 바뀌는 내용. 비었으면 ERP 와 같다.
+     * applyBasePrices·mergeIntoSimpleProduct·mergeIntoComplexProduct 가 쓰는 값과 같은 기준으로 비교한다.
+     */
+    static List<String> changes(Product product, List<Map<String, Object>> rows) {
+        List<String> out = new ArrayList<>();
+        Map<String, Object> first = rows.get(0);
+        change(out, "A단가", product.getPriceA(), ErpValues.toInteger(first.get("OUTA")));
+        change(out, "B단가", product.getPriceB(), ErpValues.toInteger(first.get("OUTB")));
+        change(out, "C단가", product.getPriceC(), ErpValues.toInteger(first.get("OUTC")));
+        List<Combination> combos = product.getCombinations() == null ? List.of() : product.getCombinations();
+
+        if (rows.size() == 1) {
+            String code = String.valueOf(first.get("CODE"));
+            String gyu = (String) first.get("GYU");
+            change(out, "ERP 코드", product.getErpCode(), code);
+            if (Boolean.TRUE.equals(product.getIsComplexOptions())) out.add("단일 규격 상품으로 변경");
+            change(out, "규격", product.getGyu(), gyu != null && !gyu.trim().isEmpty() ? gyu.trim() : null);
+            change(out, "재고", product.getStock(), ErpValues.toInteger(first.get("JEGO")));
+            for (Combination c : combos) {
+                if (!Boolean.TRUE.equals(c.getDeleted()) && !code.equals(c.getErpCode())) {
+                    out.add("옵션 숨김: " + label(c));
+                }
+            }
+            return out;
+        }
+
+        if (product.getErpCode() != null || !Boolean.TRUE.equals(product.getIsComplexOptions())) {
+            out.add("여러 규격 상품으로 변경");
+        }
+        change(out, "규격", product.getGyu(), null);
+        Map<String, Combination> byCode = new HashMap<>();
+        for (Combination c : combos) {
+            if (c.getErpCode() != null) byCode.put(c.getErpCode(), c);
+        }
+        Set<String> codesNow = new HashSet<>();
+        int stock = 0;
+        for (Combination next : toCombinations(product, rows)) {
+            codesNow.add(next.getErpCode());
+            stock += next.getStock();
+            Combination c = byCode.get(next.getErpCode());
+            if (c == null) {
+                out.add("옵션 추가: " + next.getName());
+                continue;
+            }
+            List<String> diff = new ArrayList<>();
+            change(diff, "규격", c.getName(), next.getName());
+            change(diff, "A단가", c.getPriceA(), next.getPriceA());
+            change(diff, "B단가", c.getPriceB(), next.getPriceB());
+            change(diff, "C단가", c.getPriceC(), next.getPriceC());
+            change(diff, "재고", c.getStock(), next.getStock());
+            if (!diff.isEmpty()) out.add(label(c) + ": " + String.join(", ", diff));
+        }
+        change(out, "재고 합계", product.getStock(), stock);
+        for (Combination c : byCode.values()) {
+            if (!codesNow.contains(c.getErpCode()) && !Boolean.TRUE.equals(c.getDeleted())) {
+                out.add("옵션 숨김: " + label(c));
+            }
+        }
+        return out;
+    }
+
+    private static void change(List<String> out, String what, Object before, Object after) {
+        if (!java.util.Objects.equals(before, after)) {
+            out.add(what + " " + (before == null ? "없음" : before) + "→" + (after == null ? "없음" : after));
+        }
+    }
+
+    private static String label(Combination c) {
+        String name = c.getKioskName() != null && !c.getKioskName().isBlank() ? c.getKioskName() : c.getName();
+        return name + (Boolean.TRUE.equals(c.getDeleted()) ? "(숨김)" : "");
     }
 
     private Map<String, List<Map<String, Object>>> groupedErpItems() {
