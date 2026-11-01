@@ -35,6 +35,12 @@ kiosk:
     # 저장소가 공개이므로 실제 값은 .env 나 배포 환경변수로만 넣는다.
     password: ${KIOSK_ADMIN_PASSWORD:}
 
+assistant:
+  gemini:
+    # 관리자 AI 도우미(Google Gemini API). 비우면 도우미가 "키가 설정되지 않았습니다"로 답한다. 커밋 금지.
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-3.8-flash}
+
 vision:
   # 비전 서비스의 ERP 매출 읽기 전용 브리지. 비어 있으면 접근 거부.
   erp-bridge-token: ${VISION_ERP_BRIDGE_TOKEN:}

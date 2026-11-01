@@ -890,7 +890,7 @@ public class ErpReceivingService {
         return (max == null ? 0 : max) + 1;
     }
 
-    private Map<String, Object> findItem(int itemCode) {
+    Map<String, Object> findItem(int itemCode) {
         List<Map<String, Object>> rows = erpJdbcTemplate.queryForList(
                 "SELECT CODE, ITEM, GYU, ISNULL(JEGO,0) AS JEGO, LTRIM(RTRIM(ISNULL(DANWI,''))) AS DANWI"
                         + " FROM ITEM WHERE CODE = ?", itemCode);
@@ -900,7 +900,7 @@ public class ErpReceivingService {
         return rows.get(0);
     }
 
-    private int requireVendor(Integer vendorCode) {
+    int requireVendor(Integer vendorCode) {
         if (vendorCode == null) {
             throw new IllegalArgumentException("매입처를 선택하세요.");
         }
