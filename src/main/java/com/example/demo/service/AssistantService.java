@@ -297,9 +297,69 @@ public class AssistantService {
         return result;
     }
 
+    /** DB 에 저장된 최근 관리자 AI 질문·답변 로그를 조회한다. */
+    public List<Map<String, Object>> getRecentLogs(int limit) {
+        int max = Math.min(Math.max(1, limit), 50);
+        return logs.findTop50ByOrderByCreatedAtDesc().stream()
+                .limit(max)
+                .map(l -> {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("id", l.getId());
+                    map.put("createdAt", l.getCreatedAt().toString());
+                    map.put("question", l.getQuestion());
+                    map.put("tools", l.getTools());
+                    map.put("answer", l.getAnswer());
+                    return map;
+                })
+                .toList();
+    }
+
+    /**
+     * 대화 기록이 길어질 경우, 앞선 대화들을 핵심 요점만 간추린 요약문으로 압축하고
+     * 최근 4개 메시지는 전문을 유지하여 토큰 낭비와 맥락 유실을 동시에 방지한다.
+     */
+    List<Message> compactHistory(List<Message> history) {
+        if (history == null || history.size() <= 6) {
+            return history == null ? List.of() : history;
+        }
+
+        // 최근 4개(질문 2개, 답변 2개)는 전문 유지
+        int keepRecent = 4;
+        int cutoff = history.size() - keepRecent;
+        List<Message> older = history.subList(0, cutoff);
+        List<Message> recent = history.subList(cutoff, history.size());
+
+        StringBuilder summary = new StringBuilder("[이전 대화 요약 및 맥락]\n");
+        for (int i = 0; i < older.size(); i++) {
+            Message m = older.get(i);
+            String role = "user".equals(m.role()) ? "사장님" : "AI";
+            String text = m.text() == null ? "" : m.text().trim();
+            if (text.isEmpty() && m.images() != null && !m.images().isEmpty()) {
+                text = "[사진 첨부]";
+            }
+            if (text.length() > 140) {
+                int nl = text.indexOf('\n');
+                if (nl > 0 && nl < 140) {
+                    text = text.substring(0, nl) + " (외 상세 표)";
+                } else {
+                    text = text.substring(0, 130) + "...";
+                }
+            }
+            summary.append("- ").append(role).append(": ").append(text).append("\n");
+        }
+        summary.append("(위 이전 맥락을 기억한 상태로 최근 질문에 이어서 답변할 것)");
+
+        List<Message> compacted = new ArrayList<>();
+        compacted.add(new Message("user", summary.toString()));
+        compacted.add(new Message("model", "네, 이전 대화 맥락을 모두 확인했습니다. 계속해서 말씀해 주세요."));
+        compacted.addAll(recent);
+        return compacted;
+    }
+
     private ArrayNode toContents(List<Message> history) {
         if (history == null || history.isEmpty()) throw new IllegalArgumentException("질문을 입력해 주세요.");
-        List<Message> recent = history.subList(Math.max(0, history.size() - MAX_HISTORY), history.size());
+        List<Message> processed = compactHistory(history);
+        List<Message> recent = processed.subList(Math.max(0, processed.size() - MAX_HISTORY), processed.size());
         ArrayNode contents = json.createArrayNode();
         for (int i = 0; i < recent.size(); i++) {
             Message m = recent.get(i);

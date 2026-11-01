@@ -8,6 +8,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -18,6 +20,8 @@ import lombok.Setter;
 @Getter
 @Setter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class AssistantLog {
 
     @Id
@@ -31,6 +35,7 @@ public class AssistantLog {
     private String question;
 
     /** 호출한 조회 도구와 인자. 예: erp_sales_summary{"from":"2026-10-01"} */
+    @Builder.Default
     @Column(nullable = false, length = 1000)
     private String tools = "";
 

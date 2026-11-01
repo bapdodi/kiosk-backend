@@ -202,4 +202,44 @@ class AssistantServiceTest {
         assertThrows(IllegalArgumentException.class, () -> AssistantService.checkRange(
                 java.time.LocalDate.of(2025, 1, 1), java.time.LocalDate.of(2026, 6, 1)));
     }
+
+    @Test
+    void compactHistorySummarizesOlderTurnsWhenLong() throws Exception {
+        var svc = service("key", new ArrayList<>(), new ArrayList<>());
+        List<AssistantService.Message> history = new ArrayList<>();
+        history.add(new AssistantService.Message("user", "동관 15A 재고 얼마야?"));
+        history.add(new AssistantService.Message("model", "현재고 0개입니다."));
+        history.add(new AssistantService.Message("user", "미도금속에 발주서 작성해줘"));
+        history.add(new AssistantService.Message("model", "발주서 초안을 작성했습니다."));
+        history.add(new AssistantService.Message("user", "태은플라자도 추천해줘"));
+        history.add(new AssistantService.Message("model", "추천 품목 8건입니다."));
+        history.add(new AssistantService.Message("user", "태은 발주서 잡아줘"));
+        history.add(new AssistantService.Message("model", "승인 카드를 띄웠습니다."));
+
+        List<AssistantService.Message> compacted = svc.compactHistory(history);
+        assertEquals(6, compacted.size());
+        assertTrue(compacted.get(0).text().contains("[이전 대화 요약 및 맥락]"));
+        assertTrue(compacted.get(0).text().contains("동관 15A"));
+        assertEquals("태은 발주서 잡아줘", compacted.get(4).text());
+        assertEquals("승인 카드를 띄웠습니다.", compacted.get(5).text());
+    }
+
+    @Test
+    void getRecentLogsReturnsFormattedEntries() throws Exception {
+        var svc = service("key", new ArrayList<>(), new ArrayList<>());
+        when(logs.findTop50ByOrderByCreatedAtDesc()).thenReturn(List.of(
+                AssistantLog.builder()
+                        .id(1L)
+                        .createdAt(java.time.LocalDateTime.of(2026, 11, 1, 10, 0))
+                        .question("동관 재고")
+                        .tools("search_items")
+                        .answer("0개입니다")
+                        .build()
+        ));
+        var list = svc.getRecentLogs(10);
+        assertEquals(1, list.size());
+        assertEquals("동관 재고", list.get(0).get("question"));
+        assertEquals("search_items", list.get(0).get("tools"));
+        assertEquals("0개입니다", list.get(0).get("answer"));
+    }
 }

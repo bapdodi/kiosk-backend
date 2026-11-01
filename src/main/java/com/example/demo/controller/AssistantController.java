@@ -8,9 +8,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.demo.service.AssistantService;
@@ -57,5 +59,11 @@ public class AssistantController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "실행 중 오류가 발생했습니다: " + e.getMessage()));
         }
+    }
+
+    /** 이전 세션 대화 기록(DB assistant_log)을 최신순으로 조회한다. */
+    @GetMapping("/history")
+    public ResponseEntity<?> getHistory(@RequestParam(value = "limit", defaultValue = "30") int limit) {
+        return ResponseEntity.ok(assistantService.getRecentLogs(limit));
     }
 }
