@@ -52,6 +52,8 @@ class ErpOrderSenderIT {
                 "SELECT DISTINCT dNO FROM IL26 WHERE dDATE = ? AND BIGO2 IN (?, ?)", Integer.class,
                 DATE, "KIOSK-" + FIRST_ID, "KIOSK-" + SECOND_ID);
         assertThat(numbers).hasSize(2).doesNotHaveDuplicates();
+        // 경영박사가 미리 뽑아 둔 MAX+1 을 비켜 가도록 키오스크 번호 사이엔 항상 빈 번호가 있다.
+        assertThat(Math.abs(numbers.get(0) - numbers.get(1))).isGreaterThanOrEqualTo(2);
         assertThat(first.getItems().get(0).getChargedPrice()).isEqualTo(4000);
         assertThat(second.getItems().get(0).getChargedPrice()).isEqualTo(4000);
         assertThat(first.getTotalAmount()).isEqualTo(4000);
