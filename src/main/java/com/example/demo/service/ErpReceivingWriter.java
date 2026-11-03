@@ -41,7 +41,7 @@ public class ErpReceivingWriter {
 
     /**
      * 전표번호 채번 → 멱등키 등록 → 라인 INSERT → 자기검증 → (설정 시) 재고 반영을 한 트랜잭션으로 처리.
-     * 채번은 반드시 이 트랜잭션 안에서 해야 UPDLOCK 이 커밋까지 유지된다(밖에서 뽑으면 락이 바로 풀린다).
+     * 채번은 반드시 이 트랜잭션 안에서 해야 앱 잠금이 커밋까지 유지된다(밖에서 뽑으면 잠금이 바로 풀린다).
      * 실제로 쓴 전표번호를 돌려준다.
      */
     @Transactional("erpTransactionManager")
@@ -61,7 +61,7 @@ public class ErpReceivingWriter {
         int dNo = nextDno(ilTable, dDate);
 
         // 멱등: 별도 테이블 없이 원장 줄의 추적 태그(BIGO2)가 곧 요청 ID 다.
-        // 채번이 UPDLOCK/HOLDLOCK 으로 직렬화돼 있어, 같은 요청이 겹쳐도 뒤에 온 쪽은 앞 쪽 커밋 뒤에 태그를 보게 된다.
+        // 채번이 앱 잠금으로 직렬화돼 있어, 같은 요청이 겹쳐도 뒤에 온 쪽은 앞 쪽 커밋 뒤에 태그를 보게 된다.
         Integer already = erpJdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM " + ilTable + " WHERE BIGO2 = ?", Integer.class, tag);
         if (already != null && already > 0) {
@@ -108,14 +108,14 @@ public class ErpReceivingWriter {
     }
 
     /**
-     * 당일 전표번호 채번. UPDLOCK/HOLDLOCK 으로 우리끼리의 동시 저장은 직렬화된다.
-     * 경영박사와의 경합은 제어할 수 없어 INSERT 후 자기검증으로 잡는다.
+     * 당일 전표번호 채번. 우리끼리의 동시 저장은 앱 잠금으로 직렬화된다(주문 전송과 같은 잠금).
+     * 경영박사가 미리 뽑아 둔 MAX+1 을 비켜 가려고 MAX+2 를 쓴다. 남은 경합은 INSERT 후 자기검증으로 잡는다.
      */
     private int nextDno(String ilTable, String dDate) {
+        ErpVoucherLock.acquire(erpJdbcTemplate, ilTable);
         Integer max = erpJdbcTemplate.queryForObject(
-                "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WITH (UPDLOCK, HOLDLOCK) WHERE dDATE = ?",
-                Integer.class, dDate);
-        return (max == null ? 0 : max) + 1;
+                "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WHERE dDATE = ?", Integer.class, dDate);
+        return (max == null ? 0 : max) + 2;
     }
 
     /** 취소: BIGO2 태그가 붙은 우리 전표만 지운다. 남의 줄은 절대 건드리지 않는다. */

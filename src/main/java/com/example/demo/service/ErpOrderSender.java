@@ -132,14 +132,15 @@ public class ErpOrderSender {
     }
 
     /**
-     * 당일 전표번호 채번. 이 트랜잭션 안에서 UPDLOCK/HOLDLOCK 을 잡아야 커밋까지 유지돼
-     * 우리 쪽 동시 전송(주문·입고)이 같은 번호를 받지 않는다. 경영박사와의 경합은 자기검증으로 잡는다.
+     * 당일 전표번호 채번. 우리 쪽 동시 전송(주문·입고)은 앱 잠금으로 직렬화한다.
+     * IL 테이블에 잠금 힌트를 걸면 dDATE 인덱스가 없어 테이블 X 잠금이 돼 경영박사가 멈춘다.
+     * 경영박사는 MAX+1 을 미리 뽑아 두고 나중에 저장하므로 우리는 MAX+2 를 써서 그 번호를 비켜 간다.
      */
     private int nextVoucherNo(String ilTable, String erpDate) {
+        ErpVoucherLock.acquire(erpJdbcTemplate, ilTable);
         Integer max = erpJdbcTemplate.queryForObject(
-                "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WITH (UPDLOCK, HOLDLOCK) WHERE dDATE = ?",
-                Integer.class, erpDate);
-        return (max != null ? max : 0) + 1;
+                "SELECT ISNULL(MAX(dNO),0) FROM " + ilTable + " WHERE dDATE = ?", Integer.class, erpDate);
+        return (max != null ? max : 0) + 2;
     }
 
     /**
