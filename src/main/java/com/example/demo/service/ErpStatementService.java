@@ -56,6 +56,12 @@ public class ErpStatementService {
     /** 이 점수 이상이고 2등과 차이가 나면 품목을 미리 골라 둔다. 단가 일치(10)만으로는 부족하다. */
     static final int CONFIDENT_SCORE = 16;
     static final int CONFIDENT_GAP = 3;
+    /**
+     * 이 거래처 이력에서 단가가 똑같은 품목이 하나뿐이고 그게 1등이면, 이름이 조금만 닮아도(단가 10 + 2) 고른다.
+     * 2등과의 격차 3 은 그대로 요구한다(엑셀파이프 60,000 이 주름관 60,000 줄에 붙던 경우가 격차 2 였다).
+     * 평가(435줄)에서 자동선택 정답이 138 -> 231 줄로 늘었고 오답은 늘지 않았다.
+     */
+    static final int UNIQUE_PRICE_SCORE = 12;
     /** 자동 선택은 아니지만 첫 후보를 "추천"으로 강조하는 점수. 이 구간은 평가에서 97% 맞았다. */
     static final int LIKELY_SCORE = 13;
     private static final int PRICE_HIT = 10;
@@ -323,7 +329,9 @@ public class ErpStatementService {
             double price = ((Number) line.get("price")).doubleValue();
             // 같은 품목이 단가별로 여러 줄이면 점수가 가장 높은 줄 하나만 후보로 남긴다.
             Map<Object, Object[]> best = new LinkedHashMap<>();
+            Set<Object> samePrice = new HashSet<>();
             for (Map<String, Object> h : hist) {
+                if (Math.abs(((Number) h.get("price")).doubleValue() - price) <= 1) samePrice.add(h.get("code"));
                 int score = score(name, price, String.valueOf(h.get("name")) + " " + h.get("gyu"),
                         ((Number) h.get("price")).doubleValue());
                 if (score <= 0) continue;
@@ -350,7 +358,7 @@ public class ErpStatementService {
             line.put("candidates", candidates);
             int top = ranked.isEmpty() ? 0 : (Integer) ranked.get(0)[0];
             boolean gapOk = ranked.size() == 1 || (!ranked.isEmpty() && top - (Integer) ranked.get(1)[0] >= CONFIDENT_GAP);
-            boolean confident = !ranked.isEmpty() && top >= CONFIDENT_SCORE && gapOk;
+            boolean confident = confident(ranked, samePrice);
             line.put("itemCode", confident ? candidates.get(0).get("code") : null);
             if (!ranked.isEmpty() && !confident && top >= LIKELY_SCORE && gapOk) candidates.get(0).put("likely", true);
             if (confident && candidates.get(0).get("converted") != null) {
@@ -360,6 +368,15 @@ public class ErpStatementService {
                 line.put("converted", true);
             }
         }
+    }
+
+    /** ranked: 점수 내림차순 [점수, 품목]. samePrice: 이력에서 명세서 단가와 똑같은 단가로 산 품목 코드. */
+    static boolean confident(List<Object[]> ranked, Set<Object> samePrice) {
+        if (ranked.isEmpty()) return false;
+        int top = (Integer) ranked.get(0)[0];
+        if (ranked.size() > 1 && top - (Integer) ranked.get(1)[0] < CONFIDENT_GAP) return false;
+        return top >= CONFIDENT_SCORE
+                || top >= UNIQUE_PRICE_SCORE && samePrice.size() == 1 && samePrice.contains(((Map<?, ?>) ranked.get(0)[1]).get("code"));
     }
 
     /**

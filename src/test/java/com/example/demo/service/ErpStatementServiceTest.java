@@ -221,4 +221,17 @@ class ErpStatementServiceTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> svc.rematch(new ErpStatementService.RematchRequest(null, List.of())));
     }
+
+    @Test
+    void uniquePriceTopIsConfidentWithLowerScore() {
+        List<Object[]> ranked = List.of(new Object[] {13, Map.of("code", 7)}, new Object[] {10, Map.of("code", 8)});
+        // 16점 미만이라 원래 기준으로는 못 고르지만, 같은 단가 품목이 그것 하나뿐이면 고른다.
+        assertTrue(ErpStatementService.confident(ranked, java.util.Set.of(7)));
+        assertFalse(ErpStatementService.confident(ranked, java.util.Set.of(7, 8)));
+        assertFalse(ErpStatementService.confident(ranked, java.util.Set.of(8)));
+        assertFalse(ErpStatementService.confident(List.<Object[]>of(new Object[] {11, Map.of("code", 7)}), java.util.Set.of(7)));
+        // 격차가 3 보다 작으면 단가가 유일해도 고르지 않는다.
+        assertFalse(ErpStatementService.confident(
+                List.of(new Object[] {13, Map.of("code", 7)}, new Object[] {11, Map.of("code", 8)}), java.util.Set.of(7)));
+    }
 }
