@@ -119,9 +119,11 @@ class ErpStatementServiceTest {
     private final StatementItemAliasRepository itemRepo = mock(StatementItemAliasRepository.class);
     private final StatementVendorAliasRepository vendorRepo = mock(StatementVendorAliasRepository.class);
 
+    private final StatementGemini noAi = new StatementGemini(new com.fasterxml.jackson.databind.ObjectMapper(), "", "m", 600);
+
     private ErpStatementService service() {
         when(erp.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(1);
-        return new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, "", 600);
+        return new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, noAi, "", 600);
     }
 
     @Test
@@ -156,7 +158,7 @@ class ErpStatementServiceTest {
     @Test
     void learnRejectsUnknownVendorAndSkipsBlankNames() {
         when(erp.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(0);
-        ErpStatementService svc = new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, "", 600);
+        ErpStatementService svc = new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, noAi, "", 600);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> svc.learn(new LearnRequest(999, null, List.of())));
         assertFalse(ErpStatementService.nameKey("박//").length() > 0); // 잡음뿐인 품명은 키가 비어 배우지 않는다
@@ -215,7 +217,7 @@ class ErpStatementServiceTest {
     @Test
     void rematchRejectsUnknownVendorAndTooManyLines() {
         when(erp.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(0);
-        ErpStatementService svc = new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, "", 600);
+        ErpStatementService svc = new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, noAi, "", 600);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> svc.rematch(new ErpStatementService.RematchRequest(999, List.of())));
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
@@ -233,5 +235,48 @@ class ErpStatementServiceTest {
         // 격차가 3 보다 작으면 단가가 유일해도 고르지 않는다.
         assertFalse(ErpStatementService.confident(
                 List.of(new Object[] {13, Map.of("code", 7)}, new Object[] {11, Map.of("code", 8)}), java.util.Set.of(7)));
+    }
+
+    // ── Gemini ──────────────────────────────────────────────────────────────
+
+    @Test
+    void geminiPagesHaveTheOcrShape() throws Exception {
+        var answer = new com.fasterxml.jackson.databind.ObjectMapper().readTree("""
+                {"pages":[{"date":"2026-11-05","supplierName":"(주)태은플라자","bizNo":"127-86-57442","part":"(2/3)",
+                  "rows":[{"name":"피비 정티(GIP) - 15A","unit":"EA","qty":40,"price":701,"amount":280400,"vat":28040},
+                          {"name":"운송비","qty":1,"price":0,"amount":0}],
+                  "totals":[1646740,164674]}]}""");
+        Map<String, Object> page = StatementGemini.toPages(answer).get(0);
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) page.get("rows");
+        assertEquals(1, rows.size());                    // 금액 0 인 줄은 버린다
+        assertEquals(400L, rows.get(0).get("ea"));       // 수량을 잘못 읽어도 금액÷단가로 바로잡는다
+        assertEquals(List.of("127-86-57442"), page.get("bizNos"));
+        // 기존 거래처 매칭과 쪽 묶기가 header 로 그대로 돈다
+        assertEquals("(주)태은플라자 (2/3)", page.get("header"));
+        assertEquals(List.of(2, 3), java.util.Arrays.stream(ErpStatementService.pageOf((String) page.get("header"))).boxed().toList());
+        assertEquals(280400L, page.get("sumAmount"));
+        assertEquals("2026-11-05", page.get("date"));
+        assertEquals("2026-11-05", StatementGemini.date("2026년 11월 5일"));
+        assertEquals("2026-06-30", StatementGemini.date("2026.06.30(화)"));
+        assertNull(StatementGemini.date("null"));
+    }
+
+    @Test
+    void geminiPickIsSelectedButNotItemsOutsideTheHistory() {
+        when(erp.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(1);
+        when(erp.queryForList(anyString(), eq(792))).thenReturn(List.of(
+                Map.of("code", 2373, "name", "수도계량기(너트)", "gyu", "20", "danwi", "", "jego", 0, "price", 1200, "last", "26.05.22"),
+                Map.of("code", 2374, "name", "수도계량기(너트)", "gyu", "25", "danwi", "", "jego", 0, "price", 1700, "last", "26.05.22")));
+        StatementGemini ai = new StatementGemini(new com.fasterxml.jackson.databind.ObjectMapper(), "key", "m", 600) {
+            @Override com.fasterxml.jackson.databind.JsonNode generate(List<com.fasterxml.jackson.databind.node.ObjectNode> parts) throws Exception {
+                return new com.fasterxml.jackson.databind.ObjectMapper().readTree("[{\"line\":0,\"itemCode\":\"2373\"},{\"line\":1,\"itemCode\":9999}]");
+            }
+        };
+        ErpStatementService svc = new ErpStatementService(erp, mock(ErpReceivingService.class), itemRepo, vendorRepo, ai, "", 600);
+        List<Map<String, Object>> lines = svc.rematch(new ErpStatementService.RematchRequest(792, List.of(
+                new ErpStatementService.RematchLine("계량기너트 - 20A", 10L, 1220L, 12200L),
+                new ErpStatementService.RematchLine("계량기너트 - 25A", 10L, 2150L, 21500L))));
+        assertEquals(2373, lines.get(0).get("itemCode"));   // 점수 규칙만으로는 못 고르던 줄(코드가 문자열로 와도 읽는다)
+        assertNull(lines.get(1).get("itemCode"));            // 이력에 없는 코드(지어낸 코드)는 버린다
     }
 }

@@ -72,6 +72,8 @@ public class ErpStatementService {
     private static final double[] BASE_FACTORS = {1, 2, 3, 4, 5, 6, 8, 10, 12, 20, 24, 25, 30, 50, 100};
     /** 별칭이 맞으면 이력 점수(최대 수십 점)를 압도하도록 크게 준다. 횟수가 많은 별칭이 앞서도록 hits 를 더한다. */
     static final int ALIAS_SCORE = 100;
+    /** Gemini 가 고른 품목. 자동선택(16점, 격차 3)을 넘기되 별칭(100+)보다는 낮다. */
+    static final int AI_SCORE = 50;
     static final double ALIAS_SIMILARITY = 0.75;
     private static final int MAX_LEARN_PAIRS = 500;
     private static final Pattern TOKEN = Pattern.compile("[a-z]{2,}|[가-힣]{2,}|[0-9]+");
@@ -82,28 +84,51 @@ public class ErpStatementService {
     private final ErpReceivingService receiving;
     private final StatementItemAliasRepository itemAliases;
     private final StatementVendorAliasRepository vendorAliases;
+    private final StatementGemini gemini;
     private final String ocrUrl;
     private final int ocrTimeoutSeconds;
 
     public ErpStatementService(@Qualifier("erpJdbcTemplate") JdbcTemplate erp, ErpReceivingService receiving,
-            StatementItemAliasRepository itemAliases, StatementVendorAliasRepository vendorAliases,
+            StatementItemAliasRepository itemAliases, StatementVendorAliasRepository vendorAliases, StatementGemini gemini,
             @Value("${erp.receiving.statement-ocr-url:}") String ocrUrl,
             @Value("${erp.receiving.statement-ocr-timeout-seconds:600}") int ocrTimeoutSeconds) {
         this.erp = erp;
         this.receiving = receiving;
         this.itemAliases = itemAliases;
         this.vendorAliases = vendorAliases;
+        this.gemini = gemini;
         this.ocrUrl = ocrUrl;
         this.ocrTimeoutSeconds = ocrTimeoutSeconds;
     }
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> parse(MultipartFile file) throws Exception {
+        if (file == null || file.isEmpty()) throw new IllegalArgumentException("파일을 선택하세요.");
+        List<Map<String, Object>> pages = null;
+        if (gemini.enabled() && file.getSize() <= StatementGemini.MAX_INLINE_BYTES) {
+            try {
+                pages = gemini.read(file.getBytes(), mimeType(file));
+            } catch (Exception e) {
+                log.warn("Gemini 로 명세서를 읽지 못해 OCR 로 넘어갑니다", e);
+                if (ocrUrl == null || ocrUrl.isBlank()) throw new IllegalStateException("AI 가 명세서를 읽지 못했습니다: " + e.getMessage());
+            }
+        }
+        if (pages == null) pages = readWithOcr(file);
+        return draftsFrom(pages);
+    }
+
+    private static String mimeType(MultipartFile file) throws java.io.IOException {
+        byte[] head = java.util.Arrays.copyOf(file.getBytes(), 4);
+        if (new String(head, java.nio.charset.StandardCharsets.ISO_8859_1).equals("%PDF")) return "application/pdf";
+        String type = file.getContentType();
+        return type != null && type.startsWith("image/") ? type : "image/jpeg";
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> readWithOcr(MultipartFile file) throws Exception {
         if (ocrUrl == null || ocrUrl.isBlank()) {
             throw new IllegalStateException("명세서 읽기 서비스가 설정되지 않았습니다. (erp.receiving.statement-ocr-url)");
         }
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("파일을 선택하세요.");
-
         MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
         String name = file.getOriginalFilename() == null ? "statement" : file.getOriginalFilename();
         parts.add("file", new ByteArrayResource(file.getBytes()) {
@@ -120,8 +145,11 @@ public class ErpStatementService {
         } catch (org.springframework.web.client.RestClientException e) {
             throw new IllegalStateException("명세서 읽기 서비스에 연결하지 못했습니다: " + e.getMessage());
         }
-        List<Map<String, Object>> pages = (List<Map<String, Object>>) ocr.get("pages");
+        return (List<Map<String, Object>>) ocr.get("pages");
+    }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> draftsFrom(List<Map<String, Object>> pages) {
         List<Map<String, String>> vendors = new ArrayList<>();
         for (Map<String, Object> v : erp.queryForList(
                 "SELECT CODE, LTRIM(RTRIM(NAME)) AS NAME, REPLACE(LTRIM(RTRIM(ISNULL(SAUP,''))),'-','') AS SAUP"
@@ -314,6 +342,14 @@ public class ErpStatementService {
         List<Map<String, Object>> hist = vendorCode == null ? List.of() : history(vendorCode);
         List<StatementItemAlias> aliases = vendorCode == null ? List.of() : itemAliases.findByVendorCode(vendorCode);
         Map<Integer, Map<String, Object>> aliasItems = aliasItemInfo(aliases);
+        Map<Integer, Integer> picks = Map.of();
+        if (gemini.enabled() && !hist.isEmpty()) {
+            try {
+                picks = gemini.match(lines, hist);
+            } catch (Exception e) {
+                log.warn("Gemini 품목 고르기 실패, 점수 규칙만 씁니다", e);
+            }
+        }
         // 품목별로 가장 최근에 산 단가(환산 계수 추정에 쓴다).
         Map<Object, String> lastDate = new HashMap<>();
         Map<Object, Double> latestPrice = new HashMap<>();
@@ -324,7 +360,8 @@ public class ErpStatementService {
                 latestPrice.put(h.get("code"), ((Number) h.get("price")).doubleValue());
             }
         }
-        for (Map<String, Object> line : lines) {
+        for (int i = 0; i < lines.size(); i++) {
+            Map<String, Object> line = lines.get(i);
             String name = String.valueOf(line.get("name"));
             double price = ((Number) line.get("price")).doubleValue();
             // 같은 품목이 단가별로 여러 줄이면 점수가 가장 높은 줄 하나만 후보로 남긴다.
@@ -343,6 +380,15 @@ public class ErpStatementService {
                 Object[] cur = best.get(a.getKey());
                 if (cur != null) best.put(a.getKey(), new Object[] {(Integer) cur[0] + a.getValue(), cur[1]});
                 else if (aliasItems.containsKey(a.getKey())) best.put(a.getKey(), new Object[] {a.getValue(), aliasItems.get(a.getKey())});
+            }
+            // AI 가 고른 품목은 이력 점수 위에 얹는다(사람이 확정한 별칭보다는 아래).
+            Integer pick = picks.get(i);
+            if (pick != null) {
+                Object[] cur = best.get(pick);
+                if (cur == null) {
+                    for (Map<String, Object> h : hist) if (pick.equals(((Number) h.get("code")).intValue())) cur = new Object[] {0, h};
+                }
+                if (cur != null) best.put(pick, new Object[] {(Integer) cur[0] + AI_SCORE, cur[1]});
             }
             List<Object[]> ranked = new ArrayList<>(best.values());
             ranked.sort((a, b) -> (Integer) b[0] - (Integer) a[0]);
