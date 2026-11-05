@@ -13,7 +13,9 @@ final class ErpVoucherLock {
 
     static void acquire(JdbcTemplate erp, String ilTable) {
         Integer result = erp.queryForObject(
-                "SET NOCOUNT ON; DECLARE @r int;"
+                // autocommit=false 는 IMPLICIT_TRANSACTIONS 라 EXEC 만으로는 트랜잭션이 안 열려 -999 가 난다.
+                // 테이블을 읽는 SELECT 하나로 먼저 열어 둔다(입고처럼 이게 첫 문장인 경우).
+                "SET NOCOUNT ON; DECLARE @r int; SELECT TOP 0 @r = 0 FROM sys.objects;"
                         + " EXEC @r = sp_getapplock @Resource = ?, @LockMode = 'Exclusive',"
                         + " @LockOwner = 'Transaction', @LockTimeout = 30000;"
                         + " SELECT @r",
