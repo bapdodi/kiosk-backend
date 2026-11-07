@@ -14,6 +14,22 @@ concurrency:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # 앱 기동 테스트(DemoApplicationTests)가 빈 DB 에 Flyway 마이그레이션을 전부 적용하고
+    # 엔티티와 스키마를 대조한다. 여기서 깨지면 watchtower 가 운영을 교체하기 전에 멈춘다.
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: kiosk
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d kiosk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
     - uses: actions/checkout@v4
 
@@ -27,7 +43,15 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build with Gradle
-      run: ./gradlew test --tests com.example.demo.controller.VisionErpSalesControllerTest --tests com.example.demo.ErpCaseGroupingTest --tests com.example.demo.ProductUpdateTest --tests com.example.demo.ProductImageRenameTest bootJar
+      # *IT 는 전용 환경변수가 없으면 스스로 건너뛴다. ERP·MinIO 는 기동 때 연결 실패를 경고로만
+      # 남기므로 바로 거절되는 주소로 둔다(기본값인 사설 IP 는 러너에서 응답 없이 오래 매달린다).
+      env:
+        SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/kiosk
+        MINIO_ENDPOINT: http://127.0.0.1:1
+        MINIO_ACCESS_KEY: ci
+        MINIO_SECRET_KEY: ci-dummy-secret
+        ERP_DATASOURCE_URL: jdbc:sqlserver://127.0.0.1:1;databaseName=DR_ERP;trustServerCertificate=true
+      run: ./gradlew test bootJar
 
     - name: Login to Docker Hub
       if: github.event_name != 'pull_request'
