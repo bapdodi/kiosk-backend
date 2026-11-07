@@ -38,7 +38,11 @@ public class ErpDatabaseConfig {
         if (ds == null) {
             throw new RuntimeException("Failed to create ERP DataSource");
         }
-        return new JdbcTemplate(ds);
+        JdbcTemplate template = new JdbcTemplate(ds);
+        // 경영박사가 잡은 잠금 뒤에서 끝없이 기다리면 연결 10개가 금방 차 ERP 를 쓰는 기능이 다 멈춘다.
+        // 가장 무거운 새벽 추천 집계가 로컬 사본에서 3초라 60초면 넉넉하다. RESTORE 는 master 템플릿이라 해당 없음.
+        template.setQueryTimeout(60);
+        return template;
     }
 
     /**
