@@ -33,7 +33,9 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/*/admin/**", "/api/*/admin",
-                                "/api/channels/*/admin/**", "/api/channels/*/admin").hasRole("ADMIN")
+                                "/api/channels/*/admin/**", "/api/channels/*/admin",
+                                // 상품 사진 업로드. 관리자 화면만 쓰는데 경로가 위 규칙에서 빠져 있었다.
+                                "/api/upload").hasRole("ADMIN")
                         .requestMatchers("/api/auth/**").permitAll()
                         .anyRequest().permitAll())
                 .logout(logout -> logout.permitAll());

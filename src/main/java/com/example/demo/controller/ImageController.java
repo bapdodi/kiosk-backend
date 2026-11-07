@@ -57,12 +57,14 @@ public class ImageController {
                     .build());
 
             MediaType contentType = resolveContentType(stat.contentType(), filename);
+            // 이 주소는 관리자 화면과 출처가 같아, html·svg 를 그대로 열면 그 안의 스크립트가 관리자 권한으로 돈다.
+            boolean inlineSafe = "image".equals(contentType.getType()) && !contentType.getSubtype().contains("svg");
 
             return ResponseEntity.ok()
-                    .contentType(contentType)
+                    .contentType(inlineSafe ? contentType : MediaType.APPLICATION_OCTET_STREAM)
                     .contentLength(stat.size())
                     .cacheControl(CacheControl.maxAge(Duration.ofDays(7)).cachePublic())
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, inlineSafe ? "inline" : "attachment")
                     .body(new InputStreamResource(in));
         } catch (Exception e) {
             log.warn("이미지 스트리밍 실패: {} ({})", filename, e.getMessage());
