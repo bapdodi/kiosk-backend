@@ -1,5 +1,6 @@
 package com.example.demo.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -7,5 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.example.demo.entity.ErpOrderOutbox;
 
 public interface ErpOrderOutboxRepository extends JpaRepository<ErpOrderOutbox, Long> {
-    List<ErpOrderOutbox> findTop10ByProcessedAtIsNullAndAttemptsLessThanOrderByCreatedAtAsc(int maxAttempts);
+    List<ErpOrderOutbox> findTop10ByProcessedAtIsNullAndAttemptsLessThanOrderByAttemptsAscCreatedAtAsc(int maxAttempts);
+
+    long countByProcessedAtIsNullAndCreatedAtBefore(LocalDateTime cutoff);
 }
