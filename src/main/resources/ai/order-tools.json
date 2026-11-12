@@ -1,0 +1,166 @@
+[
+  {
+    "name": "search_products",
+    "description": "기존 상품 목록 화면에서 검색한다. 반환된 position은 화면 상품 순서다. 짧은 상품명으로 검색하고 여러 후보는 손님에게 확인한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "query": {
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "get_product_options",
+    "description": "기존 상품 상세 화면을 열고 실제 규격 선택지를 조회한다. 담기 전에 규격과 포장 단위를 확인한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "productId": {
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "productId"
+      ]
+    }
+  },
+  {
+    "name": "select_product_option",
+    "description": "기존 상품 상세 화면에서 규격 버튼과 수량을 선택한다. 장바구니에는 아직 담지 않는다. 손님에게 맞는지 확인할 때 사용한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "productId": {
+          "type": "STRING"
+        },
+        "optionId": {
+          "type": "STRING"
+        },
+        "quantity": {
+          "type": "INTEGER"
+        }
+      },
+      "required": [
+        "productId",
+        "optionId",
+        "quantity"
+      ]
+    }
+  },
+  {
+    "name": "add_to_cart",
+    "description": "손님이 요청한 상품·규격·수량을 장바구니에 추가한다. 옵션은 조회한 optionId만 사용한다. 주문 접수는 하지 않는다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "productId": {
+          "type": "STRING"
+        },
+        "optionId": {
+          "type": "STRING"
+        },
+        "quantity": {
+          "type": "INTEGER"
+        }
+      },
+      "required": [
+        "productId",
+        "optionId",
+        "quantity"
+      ]
+    }
+  },
+  {
+    "name": "get_cart",
+    "description": "현재 장바구니를 조회한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {}
+    }
+  },
+  {
+    "name": "set_cart_quantity",
+    "description": "손님이 요청한 장바구니 줄의 수량을 변경한다. 0이면 해당 줄을 삭제한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "cartId": {
+          "type": "STRING"
+        },
+        "quantity": {
+          "type": "INTEGER"
+        }
+      },
+      "required": [
+        "cartId",
+        "quantity"
+      ]
+    }
+  },
+  {
+    "name": "prepare_review",
+    "description": "상호와 상품이 정해지면 기존 주문 확인 화면을 열고 reviewId를 발급받는다. 반환된 상호, 상품명, 규격, 수량을 모두 음성으로 읽고 주문을 접수할지 물어본다. 그 뒤 손님의 새로운 명확한 확답을 받아야 confirm_order를 호출할 수 있다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {}
+    }
+  },
+  {
+    "name": "get_screen",
+    "description": "현재 손님이 보고 있는 기존 화면, 검색 결과 순서, 상품 상세의 규격·수량 선택과 장바구니를 읽는다. 손님이 직접 터치한 선택을 확인하거나 이거/첫번째 같은 지시를 해석할 때 사용한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {}
+    }
+  },
+  {
+    "name": "search_customers",
+    "description": "등록된 상호를 검색하고 기존 상호 선택 화면에 표시한다. 결과는 이름과 코드만 반환한다. 동명이거나 비슷하면 손님에게 다시 확인한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "query": {
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "select_customer",
+    "description": "손님이 확인한 등록 상호를 선택한다. 손님이 비회원이라고 한 경우 customerCode 1196을 사용한다. 주문 접수는 하지 않는다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "customerCode": {
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "customerCode"
+      ]
+    }
+  },
+  {
+    "name": "confirm_order",
+    "description": "prepare_review로 내용을 읽어 준 뒤 손님의 새로운 명확한 주문 확답을 받았을 때만 실제 주문을 접수한다. 현재 reviewId가 필요하다. 수정/취소/애매한 대답에는 호출하지 않는다. 성공 응답이 와야 완료라고 안내한다.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "reviewId": {
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "reviewId"
+      ]
+    }
+  }
+]
