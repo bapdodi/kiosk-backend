@@ -40,13 +40,20 @@ class OrderVoiceServiceTest {
         assertEquals("models/live-model", request.at("/bidiGenerateContentSetup/model").asText());
         assertEquals("AUDIO", request.at("/bidiGenerateContentSetup/generationConfig/responseModalities/0").asText());
         var tools = request.at("/bidiGenerateContentSetup/tools/0/functionDeclarations");
-        assertEquals(11, tools.size());
+        assertEquals(23, tools.size());
         boolean hasConfirmation = false;
+        boolean hasNavigation = false;
         for (var tool : tools) {
             if (tool.path("name").asText().equals("confirm_order")) hasConfirmation = true;
+            if (tool.path("name").asText().equals("navigate_screen")) {
+                hasNavigation = true;
+                assertTrue(tool.at("/parameters/properties/target/enum").toString().contains("products"));
+                assertFalse(tool.at("/parameters/properties/target/enum").toString().contains("admin"));
+            }
             assertFalse(tool.path("name").asText().contains("admin"));
         }
         assertTrue(hasConfirmation);
+        assertTrue(hasNavigation);
         assertFalse(request.toString().contains("test-key"));
     }
 }
