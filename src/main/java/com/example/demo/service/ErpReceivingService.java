@@ -422,6 +422,9 @@ public class ErpReceivingService {
             Integer exists = erpJdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM sys.tables WHERE name = ?", Integer.class, table);
             if (exists == null || exists == 0) continue;
+            if (kind == ErpReceivingWriter.KIND_ORDER) {
+                writer.syncMissingBaljuRecords(table);
+            }
             LocalDate partFrom = year == fromDate.getYear() ? fromDate : LocalDate.of(year, 1, 1);
             LocalDate partTo = year == toDate.getYear() ? toDate : LocalDate.of(year, 12, 31);
             String searchClause = keyword.isEmpty() ? "" :

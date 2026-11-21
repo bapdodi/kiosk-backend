@@ -68,12 +68,21 @@ public class ErpReceivingWriter {
             throw new IllegalStateException("이미 저장된 요청입니다. 화면을 새로고침하세요.");
         }
 
-        String insert = "INSERT INTO " + ilTable
+        boolean isOrder = (kind == KIND_ORDER);
+        String baljuNo = isOrder ? (dDate.replace(".", "") + "-" + String.format("%05d", dNo)) : null;
+
+        String insertIl = "INSERT INTO " + ilTable
                 + " (dNO, EDITNO, dDATE, ITEMCODE, CUST, KIND, PRICE, EA, GUM, VAT, SA, DAECHE, EA2,"
                 + " BIGO, BIGO2, BIGO3, ORDERCODE, POINT, JIJOM)"
+                + (isOrder ? " OUTPUT INSERTED.AUTOKEY" : "")
                 + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        String insertBalju = "INSERT INTO BALJU (dDATE, ITEMCODE, CUST, DATE2, PRICE, EA, EA2, JANEA, FOJANG, BALJUNO, PRINTED, AUTOKEYJ, SA, NABDATE)"
+                + " VALUES (?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, NULL, ?, 0, ?)";
+
         for (Map<String, Object> line : lines) {
-            erpJdbcTemplate.update(insert,
+            Object bigo = line.getOrDefault("bigo", line.getOrDefault("remark", memo));
+            Object[] args = new Object[] {
                     dNo,
                     line.get("editNo"),
                     dDate,
@@ -87,12 +96,35 @@ public class ErpReceivingWriter {
                     0, // SA
                     0, // DAECHE
                     0, // EA2
-                    line.getOrDefault("bigo", line.getOrDefault("remark", memo)), // BIGO - 줄 적요(발주는 단위) (null 불가)
+                    bigo, // BIGO - 줄 적요(발주는 단위) (null 불가)
                     tag, // BIGO2 - 우리 전표 추적용
                     line.getOrDefault("bigo3", ""), // BIGO3 - 발주의 줄 적요
                     "", // ORDERCODE
                     0, // POINT
-                    0); // JIJOM
+                    0 // JIJOM
+            };
+
+            if (isOrder) {
+                Number autokey = erpJdbcTemplate.queryForObject(insertIl, Number.class, args);
+                if (autokey != null) {
+                    Object ea = line.get("ea");
+                    Object price = line.get("price");
+                    String fojang = String.valueOf(line.getOrDefault("danwi", bigo != null ? bigo : ""));
+                    erpJdbcTemplate.update(insertBalju,
+                            dDate,
+                            line.get("itemCode"),
+                            vendorCode,
+                            price,
+                            ea,
+                            ea, // JANEA (초기 잔여 수량 = 발주 수량)
+                            fojang,
+                            baljuNo,
+                            autokey.longValue(),
+                            dDate);
+                }
+            } else {
+                erpJdbcTemplate.update(insertIl, args);
+            }
         }
 
         // 전표번호 자기검증: 경영박사가 같은 순간 같은 dNO 를 쓰면 한 전표에 남의 줄이 섞인다.
@@ -122,6 +154,15 @@ public class ErpReceivingWriter {
     @Transactional("erpTransactionManager")
     public void deleteVoucher(String requestId, String tag, String ilTable, String dDate, int dNo,
             int expectedLines, List<Map<String, Object>> lines) {
+        // 발주 전표인 경우 경영박사 발주관리 테이블(BALJU)에서도 연결된 행을 삭제한다.
+        try {
+            erpJdbcTemplate.update(
+                    "DELETE FROM BALJU WHERE AUTOKEYJ IN (SELECT AUTOKEY FROM " + ilTable + " WHERE dDATE = ? AND dNO = ? AND BIGO2 = ?)",
+                    dDate, dNo, tag);
+        } catch (Exception e) {
+            // BALJU 테이블이 없거나 오류 발생 시에도 IL 테이블 취소는 진행
+        }
+
         int deleted = erpJdbcTemplate.update(
                 "DELETE FROM " + ilTable + " WHERE dDATE = ? AND dNO = ? AND BIGO2 = ?", dDate, dNo, tag);
         if (deleted != expectedLines) {
@@ -130,6 +171,26 @@ public class ErpReceivingWriter {
                     "삭제된 줄 수가 기록과 다릅니다(" + deleted + "/" + expectedLines + "). 경영박사에서 확인하세요.");
         }
         applyStockSideEffects(lines, -1);
+    }
+
+    /**
+     * IL 테이블에만 들어가 있고 경영박사 BALJU 테이블에 누락된 발주 전표(KIND=13)를 동기화한다.
+     * 키오스크에서 작성했으나 BALJU 에 없어 경영박사 [발주관리] 화면에 안 보이던 전표들을 복구한다.
+     */
+    @Transactional("erpTransactionManager")
+    public int syncMissingBaljuRecords(String ilTable) {
+        try {
+            String syncSql = "INSERT INTO BALJU (dDATE, ITEMCODE, CUST, DATE2, PRICE, EA, EA2, JANEA, FOJANG, BALJUNO, PRINTED, AUTOKEYJ, SA, NABDATE) "
+                    + "SELECT l.dDATE, l.ITEMCODE, l.CUST, NULL, l.PRICE, l.EA, 0, l.EA, ISNULL(l.BIGO, ''), "
+                    + "REPLACE(l.dDATE, '.', '') + '-' + RIGHT('00000' + CAST(l.dNO AS VARCHAR), 5), "
+                    + "NULL, l.AUTOKEY, 0, l.dDATE "
+                    + "FROM " + ilTable + " l "
+                    + "WHERE l.KIND = 13 "
+                    + "AND NOT EXISTS (SELECT 1 FROM BALJU b WHERE b.AUTOKEYJ = l.AUTOKEY)";
+            return erpJdbcTemplate.update(syncSql);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     /**
