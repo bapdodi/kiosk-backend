@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -109,17 +110,19 @@ public class ErpReceivingService {
 
     private List<Map<String, Object>> searchItemsExact(String keyword) {
         String ilTable = ilTableFor(LocalDate.now());
-        String like = "%" + keyword + "%";
-        String startsWith = keyword + "%";
+        // 띄어쓰기로 나눈 낱말이 모두 품명이나 규격에 들어 있으면 찾는다("수도계량기 25" → 품명 수도계량기·규격 25).
+        // 공백은 양쪽 다 지우고 비교해 "수도계량기닛플"로 쳐도 "수도계량기 닛플"이 나온다.
+        String[] tokens = keyword.split("\\s+");
+        String haystack = "REPLACE(i.ITEM,' ','') + '|' + REPLACE(ISNULL(i.GYU,''),' ','')";
         Integer code = parseIntOrNull(keyword);
 
         // 가나다순으로만 정렬하면 "피비"를 쳤을 때 "가위 피비용..." 이 먼저 올라온다.
         // 찾는 물건은 보통 친 글자로 시작하므로, 관련도를 먼저 보고 그 안에서 이름순으로 준다.
-        //   0 품목코드 일치 · 1 품명이 그 글자로 시작 · 2 품명에 포함 · 3 규격에만 포함
+        //   0 품목코드 일치 · 1 품명이 첫 낱말로 시작 · 2 품명에 첫 낱말 포함 · 3 규격에만 포함
         String relevance = "CASE"
                 + (code != null ? " WHEN i.CODE = ? THEN 0" : "")
-                + " WHEN i.ITEM LIKE ? THEN 1"
-                + " WHEN i.ITEM LIKE ? THEN 2"
+                + " WHEN REPLACE(i.ITEM,' ','') LIKE ? THEN 1"
+                + " WHEN REPLACE(i.ITEM,' ','') LIKE ? THEN 2"
                 + " ELSE 3 END";
 
         String sql = "SELECT TOP 50 i.CODE, i.ITEM, i.GYU, ISNULL(i.JEGO,0) AS JEGO, i.PARTCODE,"
@@ -130,21 +133,23 @@ public class ErpReceivingService {
                 + " p.CUST AS lastVendorCode, LTRIM(RTRIM(ISNULL(g.NAME,''))) AS lastVendorName,"
                 + " p.PRICE AS lastPrice, p.dDATE AS lastDate"
                 + " FROM ITEM i"
-                + " OUTER APPLY (SELECT TOP 1 CUST, PRICE, dDATE FROM " + ilTable
-                + "              WHERE ITEMCODE = i.CODE AND KIND = " + ErpReceivingWriter.KIND_PURCHASE
-                + "              ORDER BY dDATE DESC, dNO DESC, EDITNO DESC) p"
+                // 품목마다 OUTER APPLY 로 거래원장을 훑으면 검색 한 번에 0.5초가 걸려서, 직전 매입을 한 번에 구한다.
+                + " LEFT JOIN (SELECT ITEMCODE, CUST, PRICE, dDATE, ROW_NUMBER() OVER (PARTITION BY ITEMCODE"
+                + "            ORDER BY dDATE DESC, dNO DESC, EDITNO DESC) AS rn"
+                + "            FROM " + ilTable + " WHERE KIND = " + ErpReceivingWriter.KIND_PURCHASE + ") p"
+                + "   ON p.ITEMCODE = i.CODE AND p.rn = 1"
                 + " LEFT JOIN GURAE g ON g.CODE = p.CUST"
-                + " WHERE i.CODE >= 100 AND (i.ITEM LIKE ? OR i.GYU LIKE ?"
+                + " WHERE i.CODE >= 100 AND (("
+                + String.join(" AND ", Collections.nCopies(tokens.length, haystack + " LIKE ?")) + ")"
                 + (code != null ? " OR i.CODE = ?" : "") + ")"
                 + " ORDER BY " + relevance + ", i.ITEM, i.GYU";
 
         List<Object> args = new ArrayList<>();
-        args.add(like);                       // WHERE i.ITEM LIKE
-        args.add(like);                       // WHERE i.GYU LIKE
+        for (String token : tokens) args.add("%" + token + "%");   // WHERE 낱말마다 LIKE
         if (code != null) args.add(code);     // WHERE i.CODE =
         if (code != null) args.add(code);     // ORDER BY CASE WHEN i.CODE =
-        args.add(startsWith);                 // ORDER BY CASE WHEN i.ITEM LIKE '키워드%'
-        args.add(like);                       // ORDER BY CASE WHEN i.ITEM LIKE '%키워드%'
+        args.add(tokens[0] + "%");            // ORDER BY 품명이 첫 낱말로 시작
+        args.add("%" + tokens[0] + "%");      // ORDER BY 품명에 첫 낱말 포함
 
         return erpJdbcTemplate.queryForList(sql, args.toArray());
     }
@@ -681,7 +686,7 @@ public class ErpReceivingService {
         Map<String, Object> out = new LinkedHashMap<>();
         fields.values().forEach(k -> out.put(k, ""));
         for (Map<String, Object> row : erpJdbcTemplate.queryForList(
-                "SELECT FIELD, DATA FROM sqCFGSV WHERE FIELD IN (" + String.join(",", java.util.Collections.nCopies(fields.size(), "?")) + ")",
+                "SELECT FIELD, DATA FROM sqCFGSV WHERE FIELD IN (" + String.join(",", Collections.nCopies(fields.size(), "?")) + ")",
                 fields.keySet().toArray())) {
             String key = fields.get(String.valueOf(row.get("FIELD")).trim());
             if (key != null && row.get("DATA") != null) out.put(key, String.valueOf(row.get("DATA")).trim());
