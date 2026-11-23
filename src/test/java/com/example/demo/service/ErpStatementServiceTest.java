@@ -279,4 +279,42 @@ class ErpStatementServiceTest {
         assertEquals(2373, lines.get(0).get("itemCode"));   // 점수 규칙만으로는 못 고르던 줄(코드가 문자열로 와도 읽는다)
         assertNull(lines.get(1).get("itemCode"));            // 이력에 없는 코드(지어낸 코드)는 버린다
     }
+
+    @Test
+    void geminiReturnLinesAreNegativeWhereverTheSignWasPrinted() throws Exception {
+        var answer = new com.fasterxml.jackson.databind.ObjectMapper().readTree("""
+                {"pages":[{"date":"2026-11-05","supplierName":"A","bizNo":"","part":"",
+                  "rows":[{"name":"엘보 15A","qty":10,"price":500,"amount":5000,"vat":500},
+                          {"name":"티 15A 반품","qty":3,"price":800,"amount":2400,"vat":240,"isReturn":true},
+                          {"name":"소켓 20A","qty":-2,"price":300,"amount":-600,"vat":-60},
+                          {"name":"니플 20A","qty":2,"price":-300,"amount":-600}],
+                  "totals":[]}]}""");
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) StatementGemini.toPages(answer).get(0).get("rows");
+        assertEquals(List.of(10L, -3L, -2L, -2L), rows.stream().map(r -> r.get("ea")).toList());
+        assertEquals(List.of(500L, 800L, 300L, 300L), rows.stream().map(r -> r.get("price")).toList());  // 단가는 항상 양수
+        assertEquals(List.of(5000L, -2400L, -600L, -600L), rows.stream().map(r -> r.get("amount")).toList());
+        assertEquals(-240L, rows.get(1).get("vat"));
+        assertEquals(1400L, StatementGemini.toPages(answer).get(0).get("sumAmount"));
+    }
+
+    private Map<String, Object> page(String date, String header, Long amount) {
+        return Map.of("date", date, "bizNos", List.of("1278657442"), "header", header,
+                "rows", List.of(new java.util.HashMap<>(Map.of("name", "엘보", "ea", 1L, "price", amount, "amount", amount))), "sumAmount", amount, "numbers", List.of());
+    }
+
+    @Test
+    void pagesOfTheSameVendorMergeIntoOneVoucher() {
+        ErpStatementService svc = service();
+        when(erp.queryForList(anyString())).thenReturn(List.of(Map.of("CODE", 792, "NAME", "태은플라자", "SAUP", "1278657442")));
+        // 같은 날 두 장은 둘 다 "(1/1)" 이 찍혀 있고 다른 거래처 장이 사이에 끼어도 한 전표다.
+        // 날짜를 못 읽은 장은 쪽 번호가 없으면 앞 장에 붙는다. 날짜가 다른 장은 새 전표.
+        Map<String, Object> other = new java.util.HashMap<>(page("2026-11-05", "다른상사 (1/1)", 900L));
+        other.put("bizNos", List.of("2208100001"));
+        Map<String, Object> blank = new java.util.HashMap<>(page("2026-11-05", "태은플라자", 700L));
+        blank.put("date", null);
+        List<Map<String, Object>> drafts = (List<Map<String, Object>>) svc.draftsFrom(List.of(
+                page("2026-11-05", "태은플라자 (1/1)", 500L), other, page("2026-11-05", "태은플라자 (1/1)", 600L), blank,
+                page("2026-11-06", "태은플라자 (1/1)", 800L))).get("drafts");
+        assertEquals(List.of(3, 1, 1), drafts.stream().map(d -> ((List<?>) d.get("lines")).size()).toList());
+    }
 }

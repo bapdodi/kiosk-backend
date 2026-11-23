@@ -149,7 +149,7 @@ public class ErpStatementService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> draftsFrom(List<Map<String, Object>> pages) {
+    Map<String, Object> draftsFrom(List<Map<String, Object>> pages) {
         List<Map<String, String>> vendors = new ArrayList<>();
         for (Map<String, Object> v : erp.queryForList(
                 "SELECT CODE, LTRIM(RTRIM(NAME)) AS NAME, REPLACE(LTRIM(RTRIM(ISNULL(SAUP,''))),'-','') AS SAUP"
@@ -159,29 +159,33 @@ public class ErpStatementService {
         }
 
         List<Map<String, Object>> drafts = new ArrayList<>();
-        Map<String, Object> current = null;
-        String currentKey = null;
+        List<String> keys = new ArrayList<>();  // drafts 와 같은 순서의 거래처 키
         for (Map<String, Object> page : pages) {
             List<String> bizNos = (List<String>) page.get("bizNos");
             Map<String, String> vendor = vendorByAlias(vendors, bizNos);
             if (vendor == null) vendor = matchVendor(vendors, bizNos, (String) page.get("header"));
             String date = (String) page.get("date");
             String key = vendor != null ? vendor.get("code") : (bizNos.isEmpty() ? "?" : bizNos.get(0));
-            // 같은 거래처가 이어지고 날짜가 어긋나지 않으면 한 명세서의 여러 쪽이다(1/3, 2/3 ...).
-            // 날짜를 못 읽은 쪽은 이웃 쪽과 같은 날짜로 본다.
-            boolean sameStatement = current != null && key.equals(currentKey)
-                    && (date == null || current.get("date") == null || date.equals(current.get("date")));
-            // 쪽 번호((1/3) 등)를 읽었으면 그게 우선이다: 1쪽은 항상 새 명세서, 앞 쪽의 다음 번호면 같은 명세서.
-            // 날짜를 못 읽은 쪽이 앞 명세서에 딸려 들어가는 것을 막는다.
             int[] part = pageOf((String) page.get("header"));
-            if (part != null && part[0] == 1) sameStatement = false;
-            else if (part != null && current != null && key.equals(currentKey)
-                    && current.get("lastPart") instanceof int[] last && last[1] == part[1]) sameStatement = last[0] + 1 == part[0];
-            if (!sameStatement) current = null;
+            // 같은 거래처의 쪽은 떨어져 있어도 한 전표로 모은다(두 장을 따로 스캔해도 전표는 거래처당 하나).
+            // 거래처를 모르는 쪽("?")은 서로 다른 거래처일 수 있어 바로 앞 쪽과만 잇는다.
+            Map<String, Object> current = null;
+            for (int i = drafts.size() - 1; i >= 0 && current == null; i--) {
+                if (!keys.get(i).equals(key)) { if (key.equals("?")) break; else continue; }
+                Map<String, Object> d = drafts.get(i);
+                Object dDate = d.get("date");
+                if (date != null && dDate != null && !date.equals(dDate)) continue;  // 날짜가 다르면 다른 명세서
+                // 날짜로 가를 수 없을 때만 쪽 번호((1/3) 등)를 본다: 1쪽은 새 명세서, 아니면 앞 쪽의 다음 번호여야 한다.
+                if (date == null || dDate == null) {
+                    if (part != null && part[0] == 1) continue;
+                    if (part != null && d.get("lastPart") instanceof int[] last && last[1] == part[1] && last[0] + 1 != part[0]) continue;
+                }
+                current = d;
+            }
             if (current == null) {
                 current = newDraft(vendor, date, bizNos);
-                currentKey = key;
                 drafts.add(current);
+                keys.add(key);
             } else if (current.get("date") == null) {
                 current.put("date", date);
             }
@@ -448,12 +452,14 @@ public class ErpStatementService {
     /** 후보 하나에 환산 결과(ea, price, converted)를 붙인다. 금액이 새 수량으로 나누어떨어질 때만(ERP 단가는 정수). */
     private static void convertFor(Map<String, Object> candidate, Map<String, Object> line, Double histPrice) {
         if (histPrice == null) return;
-        double qty = ((Number) line.get("ea")).doubleValue(), price = ((Number) line.get("price")).doubleValue();
+        // 반품(음수 수량)도 같은 계수로 환산하고 부호만 되돌린다.
+        long sign = ((Number) line.get("ea")).longValue() < 0 ? -1 : 1;
+        double qty = Math.abs(((Number) line.get("ea")).doubleValue()), price = ((Number) line.get("price")).doubleValue();
         Double f = conversionFactor(qty, price, histPrice);
         if (f == null || f == 1.0) return;
-        long ea = Math.round(qty * f), amount = ((Number) line.get("amount")).longValue();
+        long ea = Math.round(qty * f), amount = Math.abs(((Number) line.get("amount")).longValue());
         if (ea < 1 || amount % ea != 0) return;
-        candidate.put("ea", ea); candidate.put("price", amount / ea); candidate.put("converted", true);
+        candidate.put("ea", sign * ea); candidate.put("price", amount / ea); candidate.put("converted", true);
     }
 
     public record RematchLine(String name, Long ea, Long price, Long amount) {}

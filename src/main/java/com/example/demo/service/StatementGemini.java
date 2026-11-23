@@ -35,11 +35,11 @@ public class StatementGemini {
 
     static final String READ_PROMPT = """
             첨부 파일은 한국 배관자재 도매상이 받은 거래명세서(공급받는자용) 스캔이다. 쪽마다 아래를 읽어 JSON 으로만 답하라.
-            {"pages":[{"page":1부터 쪽 순서,"date":"YYYY-MM-DD" 거래일자(팩스 출력 시각 아님) 또는 null,"supplierName":공급자 상호,"bizNo":공급자 사업자번호 "000-00-00000" 또는 "","part":"(n/m)" 처럼 이 명세서 안의 쪽 번호가 찍혀 있으면 그대로 아니면 "","rows":[{"name":품명과 규격을 인쇄된 그대로,"unit":단위 또는 "","qty":수량,"price":단가,"amount":공급가액,"vat":세액 또는 null}],"totals":[이 쪽에 인쇄된 합계/소계/공급가액 합계/세액 합계/총합계 숫자들]}]}
+            {"pages":[{"page":1부터 쪽 순서,"date":"YYYY-MM-DD" 거래일자(팩스 출력 시각 아님) 또는 null,"supplierName":공급자 상호,"bizNo":공급자 사업자번호 "000-00-00000" 또는 "","part":"(n/m)" 처럼 이 명세서 안의 쪽 번호가 찍혀 있으면 그대로 아니면 "","rows":[{"name":품명과 규격을 인쇄된 그대로,"unit":단위 또는 "","qty":수량,"price":단가,"amount":공급가액,"vat":세액 또는 null,"isReturn":반품·반입·환입·마이너스(-, △, 빨간 글씨) 줄이면 true 아니면 false}],"totals":[이 쪽에 인쇄된 합계/소계/공급가액 합계/세액 합계/총합계 숫자들]}]}
             규칙:
             - 공급받는자(우리) 칸이 아니라 공급자 칸의 상호와 사업자번호다.
             - 품목 줄만 rows 에 넣는다. 합계·소계·전잔액·입금액 줄, 빈 줄, 손글씨 메모와 체크 표시(V, √, 물결)는 넣지 않는다.
-            - 숫자는 쉼표 없는 정수. 인쇄된 값을 그대로 옮기고 계산해서 고치지 않는다. 반품은 음수.
+            - 숫자는 쉼표 없는 정수. 인쇄된 값을 그대로 옮기고 계산해서 고치지 않는다. 반품 줄도 rows 에 넣고 isReturn 을 true 로 한다(숫자는 인쇄된 부호 그대로).
             - 수량이 손글씨에 가려졌으면 공급가액÷단가로 채운다.
             """;
 
@@ -92,17 +92,21 @@ public class StatementGemini {
             for (JsonNode r : p.path("rows")) {
                 long price = r.path("price").asLong(), amount = r.path("amount").asLong(), qty = r.path("qty").asLong();
                 if (price == 0 || amount == 0 || r.path("name").asText().isBlank()) continue;
+                // 반품: 부호가 어디에 붙었든(수량·단가·금액·isReturn) 한 줄은 수량·금액이 음수, 단가는 양수다(ERP 매입 반품과 같은 모양).
+                boolean ret = r.path("isReturn").asBoolean(false) || qty < 0 || price < 0 || amount < 0;
+                price = Math.abs(price); amount = Math.abs(amount); qty = Math.abs(qty);
                 // 금액과 단가가 수량보다 덜 틀린다(수량 칸은 손글씨에 잘 가려진다). 나누어떨어지면 수량을 거기에 맞춘다.
                 if (qty * price != amount && amount % price == 0) qty = amount / price;
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("name", r.path("name").asText().trim());
                 row.put("unit", r.path("unit").asText(""));
-                row.put("ea", qty);
+                long sign = ret ? -1 : 1;
+                row.put("ea", sign * qty);
                 row.put("price", price);
-                row.put("amount", amount);
-                row.put("vat", r.path("vat").isNumber() ? r.path("vat").asLong() : null);
+                row.put("amount", sign * amount);
+                row.put("vat", r.path("vat").isNumber() ? sign * Math.abs(r.path("vat").asLong()) : null);
                 rows.add(row);
-                sum += amount;
+                sum += sign * amount;
             }
             List<Long> numbers = new ArrayList<>();
             for (JsonNode n : p.path("totals")) if (n.canConvertToLong()) numbers.add(n.asLong());
