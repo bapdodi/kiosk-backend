@@ -835,8 +835,9 @@ public class ErpReceivingService {
             }
             Map<String, Object> item = findItem(itemCode);
             int ea = line.ea() == null ? 0 : line.ea();
-            if (ea <= 0) {
-                throw new IllegalArgumentException("수량은 1 이상이어야 합니다: " + item.get("ITEM"));
+            // 매입(KIND=4)은 반품이 음수 수량으로 들어간다(경영박사도 같다). 발주는 음수 불가.
+            if (ea == 0 || (ea < 0 && ORDER_TAG_PREFIX.equals(tagPrefix))) {
+                throw new IllegalArgumentException((ea == 0 ? "수량은 0 일 수 없습니다: " : "발주 수량은 1 이상이어야 합니다: ") + item.get("ITEM"));
             }
             int price = line.price() == null ? 0 : line.price();
             if (price < 0) {
