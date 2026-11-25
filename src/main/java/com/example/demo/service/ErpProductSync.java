@@ -1,8 +1,5 @@
 package com.example.demo.service;
 
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -37,21 +34,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ErpProductSync {
 
-    private static final ZoneId ERP_ZONE = ZoneId.of("Asia/Seoul");
-    private static final DateTimeFormatter ERP_YEAR = DateTimeFormatter.ofPattern("yy", Locale.ROOT);
-    private static final DateTimeFormatter ERP_DATE = DateTimeFormatter.ofPattern("yy.MM.dd", Locale.ROOT);
     private static final String ERP_ITEM_QUERY = """
-            WITH movement AS (
-                SELECT ITEMCODE, SUM(CASE WHEN KIND = 3 THEN -EA ELSE EA END) AS quantity
-                FROM [IL%1$s]
-                WHERE ITEMCODE >= 100 AND KIND IN (3, 4, 10) AND dDATE <= '%2$s'
-                GROUP BY ITEMCODE
-            )
             SELECT i.CODE, i.ITEM, i.GYU, i.OUTA, i.OUTB, i.OUTC, i.PARTCODE, i.MIDCODE, i.SMALLCODE,
-                   COALESCE(o.IWOL1, 0) + COALESCE(m.quantity, 0) AS JEGO
+                   COALESCE(s.quantity, 0) AS JEGO
             FROM [ITEM] i
-            LEFT JOIN [IT%1$s] o ON o.ITEMCODE = i.CODE
-            LEFT JOIN movement m ON m.ITEMCODE = i.CODE
+            LEFT JOIN current_stock s ON s.ITEMCODE = i.CODE
             WHERE i.CODE >= 100
             ORDER BY i.CODE
             """;
@@ -512,9 +499,7 @@ public class ErpProductSync {
     }
 
     private List<Map<String, Object>> erpItems() {
-        // 경영박사 화면과 같이 당해 연도 기초이월과 매입·매출·기타 재고 전표를 합산한다.
-        LocalDate today = LocalDate.now(ERP_ZONE);
-        return erpJdbcTemplate.queryForList(ERP_ITEM_QUERY.formatted(today.format(ERP_YEAR), today.format(ERP_DATE)));
+        return erpJdbcTemplate.queryForList(ErpStockQuery.withCurrentStock(ERP_ITEM_QUERY));
     }
 
     private static Map<String, List<Map<String, Object>>> group(List<Map<String, Object>> erpItems) {

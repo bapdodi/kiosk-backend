@@ -357,11 +357,15 @@ public class ErpReceivingService {
 
     /** 재고 조회용 전체 품목. 검색 없이 처음부터 다 보여 주고 거르는 것은 화면에서 한다(약 5천 건). */
     public List<Map<String, Object>> stockList() {
-        return erpJdbcTemplate.queryForList(
-                "SELECT CODE, LTRIM(RTRIM(ISNULL(ITEM,''))) AS ITEM, LTRIM(RTRIM(ISNULL(GYU,''))) AS GYU,"
-                        + " LTRIM(RTRIM(ISNULL(DANWI,''))) AS DANWI, ISNULL(JEGO,0) AS JEGO,"
-                        + " ISNULL(INPR,0) AS INPR, ISNULL(OUTA,0) AS OUTA, ISNULL(OUTB,0) AS OUTB"
-                        + " FROM ITEM WHERE CODE >= 100 ORDER BY ITEM, GYU");
+        return erpJdbcTemplate.queryForList(ErpStockQuery.withCurrentStock("""
+                SELECT i.CODE, LTRIM(RTRIM(ISNULL(i.ITEM,''))) AS ITEM, LTRIM(RTRIM(ISNULL(i.GYU,''))) AS GYU,
+                       LTRIM(RTRIM(ISNULL(i.DANWI,''))) AS DANWI, COALESCE(s.quantity, 0) AS JEGO,
+                       ISNULL(i.INPR,0) AS INPR, ISNULL(i.OUTA,0) AS OUTA, ISNULL(i.OUTB,0) AS OUTB
+                FROM [ITEM] i
+                LEFT JOIN current_stock s ON s.ITEMCODE = i.CODE
+                WHERE i.CODE >= 100
+                ORDER BY ITEM, GYU
+                """));
     }
 
     /** 매입 거래처 목록. DANGA=1 이 입고(매입) 거래처다 - 판매 단가표가 없어 주문 화면에서는 제외된다. */
