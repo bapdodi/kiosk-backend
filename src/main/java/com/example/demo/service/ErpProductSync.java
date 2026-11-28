@@ -28,20 +28,15 @@ import lombok.extern.slf4j.Slf4j;
  * ERP 품목(ITEM)을 키오스크 상품으로 반영한다.
  *
  * 같은 품명(공백·영문 대소문자 정규화)의 ERP 품목들을 한 상품으로 묶고, 품목이 여럿이면 규격(GYU)별 조합으로 만든다.
- * 새 상품은 미분류로 들어가고, 기존 상품은 가격·재고·규격만 갱신한다(이름·분류는 관리자 수정을 존중).
+ * 새 상품은 미분류로 들어가고, 기존 상품은 가격·규격만 갱신한다(이름·분류는 관리자 수정을 존중).
+ * 재고는 복사하지 않는다. 필요한 곳(관리자 화면·채널 전송)이 ERP 에서 바로 읽는다({@link ErpStock}).
  */
 @Service
 @Slf4j
 public class ErpProductSync {
 
-    private static final String ERP_ITEM_QUERY = """
-            SELECT i.CODE, i.ITEM, i.GYU, i.OUTA, i.OUTB, i.OUTC, i.PARTCODE, i.MIDCODE, i.SMALLCODE,
-                   COALESCE(s.quantity, 0) AS JEGO
-            FROM [ITEM] i
-            LEFT JOIN current_stock s ON s.ITEMCODE = i.CODE
-            WHERE i.CODE >= 100
-            ORDER BY i.CODE
-            """;
+    private static final String ERP_ITEM_QUERY = "SELECT CODE, ITEM, GYU, OUTA, OUTB, OUTC, PARTCODE, MIDCODE, SMALLCODE "
+            + "FROM [ITEM] WHERE CODE >= 100 ORDER BY CODE";
 
     /**
      * ERP 품목이지만 판매 상품이 아닌 비용·회계 항목. 전표에 금액을 싣기 위한 품목이라
@@ -135,7 +130,7 @@ public class ErpProductSync {
             log.warn("ERP customer sync failed, keeping previous copy", e);
         }
 
-        List<Map<String, Object>> erpItems = erpItems();
+        List<Map<String, Object>> erpItems = erpJdbcTemplate.queryForList(ERP_ITEM_QUERY);
         Map<String, List<Map<String, Object>>> groupedItems = group(erpItems);
         Plan plan = plan(groupedItems, new ProductIndex(productRepository.findAll()));
         List<Product> syncedProducts = new ArrayList<>();
@@ -275,16 +270,14 @@ public class ErpProductSync {
                     .priceA(ErpValues.toInteger(row.get("OUTA")))
                     .priceB(ErpValues.toInteger(row.get("OUTB")))
                     .erpCode(erpCode)
-                    .stock(ErpValues.toInteger(row.get("JEGO")))
                     .build());
         }
         return combinations;
     }
 
-    /** ERP 품목이 하나면 단순 상품: ERP 코드·재고·규격을 상품이 직접 가진다. */
+    /** ERP 품목이 하나면 단순 상품: ERP 코드·규격을 상품이 직접 가진다. */
     private void mergeIntoSimpleProduct(Product product, Combination single, Map<String, Object> row) {
         product.setErpCode(single.getErpCode());
-        product.setStock(single.getStock());
         product.setIsComplexOptions(false);
         // 단일 규격(GYU)을 product 에 보존 → 단순상품도 규격이 표시되도록 한다.
         String singleGyu = (String) row.get("GYU");
@@ -309,10 +302,9 @@ public class ErpProductSync {
         product.getCombinations().addAll(kept);
     }
 
-    /** ERP 품목이 여럿이면 복합옵션 상품: ERP 코드·재고·규격은 조합마다 있다. */
+    /** ERP 품목이 여럿이면 복합옵션 상품: ERP 코드·규격은 조합마다 있다. */
     private void mergeIntoComplexProduct(Product product, List<Combination> combinations) {
         product.setErpCode(null);
-        product.setStock(combinations.stream().mapToInt(Combination::getStock).sum());
         product.setIsComplexOptions(true);
         // 복합옵션 상품의 규격은 각 combination.name 에 담기므로 단일 규격 필드는 비운다.
         product.setGyu(null);
@@ -342,7 +334,6 @@ public class ErpProductSync {
                 existing.setPriceC(newC.getPriceC());
                 existing.setPriceA(newC.getPriceA());
                 existing.setPriceB(newC.getPriceB());
-                existing.setStock(newC.getStock());
                 existing.setId(newC.getId());
                 // deleted 는 일부러 건드리지 않는다.
                 // 관리자가 숨긴 규격을 동기화가 멋대로 되살리지 않기 위함이다.
@@ -439,7 +430,6 @@ public class ErpProductSync {
             change(out, "ERP 코드", product.getErpCode(), code);
             if (Boolean.TRUE.equals(product.getIsComplexOptions())) out.add("단일 규격 상품으로 변경");
             change(out, "규격", product.getGyu(), gyu != null && !gyu.trim().isEmpty() ? gyu.trim() : null);
-            change(out, "재고", product.getStock(), ErpValues.toInteger(first.get("JEGO")));
             for (Combination c : combos) {
                 if (!Boolean.TRUE.equals(c.getDeleted()) && !code.equals(c.getErpCode())) {
                     out.add("옵션 숨김: " + label(c));
@@ -457,10 +447,8 @@ public class ErpProductSync {
             if (c.getErpCode() != null) byCode.put(c.getErpCode(), c);
         }
         Set<String> codesNow = new HashSet<>();
-        int stock = 0;
         for (Combination next : toCombinations(product, rows)) {
             codesNow.add(next.getErpCode());
-            stock += next.getStock();
             Combination c = byCode.get(next.getErpCode());
             if (c == null) {
                 out.add("옵션 추가: " + next.getName());
@@ -471,10 +459,8 @@ public class ErpProductSync {
             change(diff, "A단가", c.getPriceA(), next.getPriceA());
             change(diff, "B단가", c.getPriceB(), next.getPriceB());
             change(diff, "C단가", c.getPriceC(), next.getPriceC());
-            change(diff, "재고", c.getStock(), next.getStock());
             if (!diff.isEmpty()) out.add(label(c) + ": " + String.join(", ", diff));
         }
-        change(out, "재고 합계", product.getStock(), stock);
         for (Combination c : byCode.values()) {
             if (!codesNow.contains(c.getErpCode()) && !Boolean.TRUE.equals(c.getDeleted())) {
                 out.add("옵션 숨김: " + label(c));
@@ -495,11 +481,7 @@ public class ErpProductSync {
     }
 
     private Map<String, List<Map<String, Object>>> groupedErpItems() {
-        return group(erpItems());
-    }
-
-    private List<Map<String, Object>> erpItems() {
-        return erpJdbcTemplate.queryForList(ErpStockQuery.withCurrentStock(ERP_ITEM_QUERY));
+        return group(erpJdbcTemplate.queryForList(ERP_ITEM_QUERY));
     }
 
     private static Map<String, List<Map<String, Object>>> group(List<Map<String, Object>> erpItems) {

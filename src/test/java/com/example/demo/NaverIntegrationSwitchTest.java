@@ -61,7 +61,8 @@ class NaverIntegrationSwitchTest {
         when(linkRepository.findByProductId(PRODUCT_ID)).thenReturn(List.of(link));
         when(linkRepository.findByProductIdAndChannel(PRODUCT_ID, "NAVER")).thenReturn(Optional.of(link));
         when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(Product.builder().id(PRODUCT_ID).name("노허브").build()));
-        return new ChannelSyncService(productRepository, linkRepository, mock(FileService.class), om, List.of(connector));
+        return new ChannelSyncService(productRepository, linkRepository, mock(FileService.class), om, List.of(connector),
+                mock(com.example.demo.service.ErpStock.class));
     }
 
     @Test

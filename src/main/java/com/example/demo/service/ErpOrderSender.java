@@ -106,7 +106,7 @@ public class ErpOrderSender {
                     "", // BIGO (Cannot be null)
                     tag, // BIGO2 for tracing
                     "", // BIGO3
-                    "", // ORDERCODE
+                    null, // ORDERCODE - 경영박사는 항상 NULL. 빈 문자열이면 품명·규격 수정이 막힌다
                     0, // POINT
                     0 // JIJOM
             );

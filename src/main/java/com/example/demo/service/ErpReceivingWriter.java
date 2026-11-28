@@ -99,7 +99,7 @@ public class ErpReceivingWriter {
                     bigo, // BIGO - 줄 적요(발주는 단위) (null 불가)
                     tag, // BIGO2 - 우리 전표 추적용
                     line.getOrDefault("bigo3", ""), // BIGO3 - 발주의 줄 적요
-                    "", // ORDERCODE
+                    null, // ORDERCODE - 경영박사는 항상 NULL. 빈 문자열이면 품명·규격 수정이 막힌다
                     0, // POINT
                     0 // JIJOM
             };

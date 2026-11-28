@@ -324,13 +324,13 @@ public class ProductService {
      * 상품에서 규격이 조용히 사라진 것처럼 보였다. 휴지통에서 그대로 되살릴 수 있게 한다.
      */
     public record HiddenOption(Long id, Long productId, String productName,
-            String optionName, String erpCode, Integer priceC, Integer stock) {}
+            String optionName, String erpCode, Integer priceC) {}
 
     @Transactional(readOnly = true)
     public List<HiddenOption> getHiddenOptions() {
         return combinationRepository.findHiddenOptions().stream()
                 .map(c -> new HiddenOption(c.getId_db(), c.getProduct().getId(), c.getProduct().getName(),
-                        c.getName(), c.getErpCode(), c.getPriceC(), c.getStock()))
+                        c.getName(), c.getErpCode(), c.getPriceC()))
                 .toList();
     }
 

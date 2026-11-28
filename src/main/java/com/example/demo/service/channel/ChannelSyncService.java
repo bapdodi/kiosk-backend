@@ -18,6 +18,7 @@ import com.example.demo.entity.Combination;
 import com.example.demo.entity.Product;
 import com.example.demo.repository.ChannelProductLinkRepository;
 import com.example.demo.repository.ProductRepository;
+import com.example.demo.service.ErpStock;
 import com.example.demo.service.FileService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,12 +43,15 @@ public class ChannelSyncService {
     private final FileService fileService;
     private final ObjectMapper objectMapper;
     private final Map<String, SalesChannelConnector> connectors;
+    private final ErpStock erpStock;
 
     public ChannelSyncService(ProductRepository productRepository,
             ChannelProductLinkRepository linkRepository,
             FileService fileService,
             ObjectMapper objectMapper,
-            List<SalesChannelConnector> connectorBeans) {
+            List<SalesChannelConnector> connectorBeans,
+            ErpStock erpStock) {
+        this.erpStock = erpStock;
         this.productRepository = productRepository;
         this.linkRepository = linkRepository;
         this.fileService = fileService;
@@ -97,13 +101,20 @@ public class ChannelSyncService {
     /**
      * 상품 전송. comboOverride 가 주어지면 그 규격(옵션) 조합으로 전송한다(전송 직전 관리자 수정용).
      * DB 의 상품/조합은 건드리지 않도록, 상품의 얕은 복사본에 조합만 교체해서 채널로 보낸다.
+     * comboOverride 가 없으면 재고는 ERP 현재고로 채워 보낸다.
      */
     public ChannelProductLink push(String channel, Long productId, List<Combination> comboOverride) {
+        return push(channel, productId, comboOverride, comboOverride == null ? erpStock.byCode() : null);
+    }
+
+    private ChannelProductLink push(String channel, Long productId, List<Combination> comboOverride,
+            Map<String, Integer> stock) {
         String ch = normalize(channel);
         SalesChannelConnector conn = activeConnector(ch);
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ChannelApiException("상품을 찾을 수 없습니다: " + productId));
-        Product effective = applyComboOverride(product, comboOverride);
+        Product effective = comboOverride != null ? applyComboOverride(product, comboOverride)
+                : ErpStock.withStock(product, stock);
         try {
             ChannelProductLink link = linkRepository.findByProductIdAndChannel(productId, ch).orElse(null);
             List<ImagePart> images = buildImageParts(product);
@@ -131,11 +142,12 @@ public class ChannelSyncService {
 
     public List<PushResult> pushBulk(String channel, List<Long> productIds) {
         String ch = normalize(channel);
+        Map<String, Integer> stock = erpStock.byCode();
         List<PushResult> results = new ArrayList<>();
         for (Long id : productIds) {
             String name = productRepository.findById(id).map(Product::getName).orElse("(삭제됨)");
             try {
-                push(ch, id);
+                push(ch, id, null, stock);
                 results.add(new PushResult(id, name, true, "전송 완료"));
             } catch (RuntimeException e) {
                 log.warn("[{}] 전송 실패 productId={}: {}", ch, id, e.getMessage());
@@ -149,9 +161,10 @@ public class ChannelSyncService {
 
     public List<ChangePreview> previewChanges(String channel) {
         String ch = normalize(channel);
+        Map<String, Integer> stock = erpStock.byCode();
         List<ChangePreview> previews = new ArrayList<>();
         for (ChannelProductLink link : linkRepository.findByChannel(ch)) {
-            Product product = productRepository.findById(link.getProductId()).orElse(null);
+            Product product = productRepository.findById(link.getProductId()).map(p -> ErpStock.withStock(p, stock)).orElse(null);
             if (product == null) {
                 previews.add(new ChangePreview(link.getProductId(), "(삭제된 상품)", link.getOriginProductNo(),
                         List.of(new FieldChange("상태", "연동됨", "키오스크에서 삭제됨 → 판매중지 권장"))));
@@ -178,10 +191,11 @@ public class ChannelSyncService {
     public List<PushResult> applyChanges(String channel, List<Long> productIds) {
         String ch = normalize(channel);
         SalesChannelConnector conn = activeConnector(ch);
+        Map<String, Integer> stock = erpStock.byCode();
         List<PushResult> results = new ArrayList<>();
         for (Long id : productIds) {
             ChannelProductLink link = linkRepository.findByProductIdAndChannel(id, ch).orElse(null);
-            Product product = productRepository.findById(id).orElse(null);
+            Product product = productRepository.findById(id).map(p -> ErpStock.withStock(p, stock)).orElse(null);
             String name = product != null ? product.getName() : "(삭제됨)";
             try {
                 if (link == null || link.getOriginProductNo() == null) {
